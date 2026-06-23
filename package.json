@@ -1,0 +1,10 @@
+{
+	"name": "@room-planner/agent-runner",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsgo --noEmit",
+		"test": "vitest run"
+	}
+}
