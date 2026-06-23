@@ -18,6 +18,11 @@ else
   echo "User already exists: $AGENT_USER"
 fi
 
+# Let the owner monitor the agent's logs over SSH — one-directional (you read in;
+# the agent can't reach out). Secret files (PAT in ~/.git-credentials, ~/.codex)
+# stay 0600, so a traversable home does not expose them.
+chmod 755 "/home/$AGENT_USER"
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends squid nftables
