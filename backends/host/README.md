@@ -43,29 +43,77 @@ fnm install 24 && fnm default 24
 corepack enable                                       # provides pnpm
 curl -fsSL https://claude.ai/install.sh | bash        # claude into ~/.local/bin
 claude login                                          # device flow — needs you
+npm i -g @playwright/cli                              # the playwright-cli we use (NOT the `playwright` pkg)
+playwright-cli install --skills                       # initialize the playwright-cli workspace
+# codex is optional / later:  npm i -g @openai/codex
 ```
 
-## Step 3 — [you] restricted GitHub credential
+## Step 3 — [you] restricted GitHub credential + branch protection
 
-Create a **fine-grained PAT** scoped to `viktorfa/plantegner` only, **Contents:
-Read/Write**, nothing else; add **branch protection on `master`** (require PR) so
-the runner can only push `auto/work`. Keep the PAT for Step 4.
+**Fine-grained PAT (web UI only — `gh` can't mint these).** Settings → Developer
+settings → Fine-grained tokens → Generate:
+- Repository access: *Only select repositories* → `plantegner`
+- Permissions: **Contents: Read and write** + **Metadata: Read** (auto). Nothing else.
+  ("Contents" *is* the git permission — Read = clone/fetch/pull, Read+write adds
+  push; there's no separate push/pull toggle.)
 
-## Step 4 — [agent] clone + deps + browsers
+**Protect `master` with a ruleset (`gh`, run from your machine where gh is authed).**
+Because the runner authenticates as *you* (your PAT), this blocks direct master
+pushes for everyone and routes landing through a quick self-PR; `auto/work` stays
+unrestricted so the runner pushes there freely:
 
+```bash
+gh api --method POST repos/viktorfa/plantegner/rulesets --input - <<'EOF'
+{ "name": "Protect master", "target": "branch", "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": { "ref_name": { "include": ["refs/heads/master"], "exclude": [] } },
+  "rules": [
+    { "type": "pull_request", "parameters": {
+        "required_approving_review_count": 0, "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false, "require_last_push_approval": false,
+        "required_review_thread_resolution": false } },
+    { "type": "non_fast_forward" }, { "type": "deletion" } ] }
+EOF
 ```
-# still as agent, open egress:
+
+Keep the PAT for Step 4.
+
+## Step 4 — [agent] git config + clone + deps + browser
+
+```bash
+# still as agent, open egress.
+
+# Commit identity (distinguishable, so runner commits stand out — or use your own):
+git config --global user.name  "plantegner agent (t14s)"
+git config --global user.email "vikfand+agent@gmail.com"
+
+# Pre-seed the PAT so headless pushes never hit a prompt (0600, agent-owned).
+git config --global credential.helper store
+printf 'https://viktorfa:%s@github.com\n' 'PASTE_YOUR_PAT_HERE' > ~/.git-credentials
+chmod 600 ~/.git-credentials
+
+# Clone + the branch the runner works on.
 mkdir -p ~/repos && cd ~/repos
 git clone https://github.com/viktorfa/plantegner.git
 cd plantegner
-git config credential.helper store      # stores the PAT in ~/.git-credentials (0600)
-# first push/pull will prompt for username + PAT, then it's remembered
+git checkout -b auto/work
+
+# Optional: make ad-hoc git as agent traverse Squid after lockdown (the runner
+# already exports HTTPS_PROXY itself).
+git config --global http.proxy http://127.0.0.1:3128
+
+# Repo deps + the chromium binary for playwright-cli.
 pnpm install
-pnpm exec playwright install chromium    # browser binaries into agent's cache
+playwright-cli install-browser chromium   # browser binary into agent's cache
 ```
 
-If `playwright install` needs system libraries, run once as root:
-`sudo bash -lc 'cd ~agent/repos/plantegner && pnpm exec playwright install-deps chromium'`
+Chromium's **system libraries** need apt (root), and `playwright-cli` doesn't
+install them. Run once **as your sudo user (viktor)** — who has pnpm via fnm — so
+the libs land system-wide for the agent's chromium:
+
+```bash
+pnpm dlx playwright install-deps chromium
+```
 
 ## Step 5 — [root] close egress (lockdown)
 
