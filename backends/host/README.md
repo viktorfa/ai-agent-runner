@@ -143,6 +143,13 @@ your machine: `git fetch origin auto/work && git log --oneline origin/auto/work 
 ---
 
 ## Notes
+- **Loop prompts** are committed at `.agent/prompts/{dev-loop,qa-loop}.md` (one
+  tool-neutral source, read directly by the runner) — they work on a fresh clone, no
+  sync needed.
+- **Repo skills** are a skillshare-synced *output*: source in `.skillshare/skills/`,
+  gitignored at `.claude/skills/`. They're optional enhancements; if you want them on
+  the executor, install skillshare and `skillshare sync` (do toolchain/sync before
+  lockdown — npm/github only). The loop runs fine without them.
 - **Egress audit:** `sudo tail -f /var/log/squid/access.log` — denied hits to odd
   hosts are the prompt-injection / supply-chain signal.
 - **Updating the allowlist:** edit `allowed-domains.txt` here, re-run `provision.sh`
