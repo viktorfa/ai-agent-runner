@@ -223,17 +223,19 @@ run_codex_once() {
   cat "$PROMPT_FILE" | "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
 }
 
-# Push the agent's commits to the remote branch after each iteration so work
-# surfaces incrementally (e.g. auto/work on the executor). Non-fatal; opt out with
-# AGENT_NO_PUSH=1. No-op when there's no origin, a detached HEAD, or nothing new.
+# Push the agent's commits to the remote work branch after each iteration so work
+# surfaces incrementally (e.g. auto/work on the executor). The runner OWNS this
+# branch, so it force-pushes (--force-with-lease): a branch reset between runs then
+# lands cleanly instead of being rejected as non-fast-forward. Review + merge
+# auto/work before resetting it. Non-fatal; opt out with AGENT_NO_PUSH=1.
 maybe_push() {
   if [ "${AGENT_NO_PUSH:-0}" = "1" ]; then return 0; fi
   if ! git remote get-url origin >/dev/null 2>&1; then return 0; fi
   local branch
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
   if [ "$branch" = "HEAD" ]; then return 0; fi
-  echo "Pushing $branch to origin..."
-  git push origin "HEAD:$branch" 2>&1 | tee -a "$LOG_FILE" || echo "push failed (non-fatal)"
+  echo "Pushing $branch to origin (force-with-lease)..."
+  git push --force-with-lease origin "HEAD:$branch" 2>&1 | tee -a "$LOG_FILE" || echo "push failed (non-fatal)"
 }
 
 i=1
