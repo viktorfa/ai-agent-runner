@@ -45,6 +45,9 @@ curl -fsSL https://claude.ai/install.sh | bash        # claude into ~/.local/bin
 claude login                                          # device flow — needs you
 npm i -g @playwright/cli                              # the playwright-cli we use (NOT the `playwright` pkg)
 playwright-cli install --skills                       # initialize the playwright-cli workspace
+# skillshare (optional): materializes the repo's skills — .agent/setup.sh runs
+# `skillshare sync` each loop. Installs to ~/.local/bin (on PATH, no sudo).
+INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/runkids/skillshare/main/install.sh | sh
 # codex is optional / later:  npm i -g @openai/codex
 ```
 
@@ -151,9 +154,11 @@ preview built before the first run. Back on your machine:
   tool-neutral source, read directly by the runner) — they work on a fresh clone, no
   sync needed.
 - **Repo skills** are a skillshare-synced *output*: source in `.skillshare/skills/`,
-  gitignored at `.claude/skills/`. They're optional enhancements; if you want them on
-  the executor, install skillshare and `skillshare sync` (do toolchain/sync before
-  lockdown — npm/github only). The loop runs fine without them.
+  gitignored at `.claude/skills/`. Once skillshare is installed (Step 2),
+  `.agent/setup.sh` runs `skillshare sync` each loop, so the skills materialize
+  automatically. `skillshare sync` is local-only (no network), so it works fine after
+  lockdown; only the *install* needs GitHub (hence Step 2, pre-lockdown). The loop runs
+  fine without skillshare — the sync step no-ops when it's absent.
 - **Egress audit:** `sudo tail -f /var/log/squid/access.log` — denied hits to odd
   hosts are the prompt-injection / supply-chain signal.
 - **Updating the allowlist:** edit `allowed-domains.txt` here, re-run `provision.sh`
