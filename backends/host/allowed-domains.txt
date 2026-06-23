@@ -24,8 +24,8 @@
 mcp.context7.com
 
 # Codex / OpenAI — uncomment when running the codex assistant on the host
-#.openai.com
-#.chatgpt.com
+.openai.com
+.chatgpt.com
 
 # Playwright browser CDN — only needed to install/refresh browsers AFTER lockdown.
 # Normally browsers are installed during setup, so these stay commented.
