@@ -209,7 +209,7 @@ run_codex_once() {
     exec
     --json
     --dangerously-bypass-approvals-and-sandbox
-    -C /workspace
+    -C "$WORKSPACE"
   )
 
   if [ -n "$MODEL" ]; then
