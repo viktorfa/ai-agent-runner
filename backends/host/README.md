@@ -137,8 +137,12 @@ cd ~/repos/plantegner
   --proxy http://127.0.0.1:3128 --iterations 1
 ```
 
-Watch it claim a task, implement, run gates, commit, and push `auto/work`. Back on
-your machine: `git fetch origin auto/work && git log --oneline origin/auto/work -5`.
+Watch it claim a task, implement, run gates, and commit. The loop **pushes the
+working branch (`auto/work`) to `origin` after each iteration automatically** (set
+`AGENT_NO_PUSH=1` to disable). It also runs `.agent/setup.sh` first (`pnpm install`
++ `skillshare sync`), so the manual `pnpm install` in Step 4 is just to get the
+preview built before the first run. Back on your machine:
+`git fetch origin auto/work && git log --oneline origin/auto/work -5`.
 
 ---
 

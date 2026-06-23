@@ -14,7 +14,6 @@ AGENT_IMAGE=${AGENT_IMAGE:-}
 WORKSPACE_PATH="$PWD"
 GIT_DIR_PATH=""
 GIT_COMMON_DIR_PATH=""
-INSTALL_DEPS=0
 INTERNAL_QA_BASE_URL=""
 STATE_NAMESPACE=${AGENT_STATE_NAMESPACE:-}
 BASH_HISTORY_VOLUME=${AGENT_BASH_HISTORY_VOLUME:-}
@@ -42,7 +41,6 @@ Options:
   --proxy <url>        host backend: egress proxy (Squid allowlist) for the agent.
                        Also AGENT_HTTPS_PROXY env.
   --workspace <path>   Workspace path (mounted at /workspace for docker; cwd for host)
-  --install-deps       Run pnpm install in the workspace before starting the loop
   -h, --help           Show this help
 
  docker-backend only:
@@ -106,10 +104,6 @@ while [ "$#" -gt 0 ]; do
     --git-dir)
       GIT_DIR_PATH=${2:?missing value for --git-dir}
       shift 2
-      ;;
-    --install-deps)
-      INSTALL_DEPS=1
-      shift
       ;;
     --state-namespace)
       STATE_NAMESPACE=${2:?missing value for --state-namespace}
@@ -179,15 +173,6 @@ if [ "$LOOP_KIND" = "qa" ] && [ -z "$QA_BASE_URL" ]; then
   INTERNAL_QA_BASE_URL="http://127.0.0.1:4173"
 fi
 
-# Auto-install deps if node_modules is missing. Every loop that runs builds,
-# previews, or dev servers needs it, and forgetting the flag silently breaks
-# the loop before the agent can do anything useful. Safe because pnpm install
-# is idempotent — re-runs exit quickly when already in sync.
-if [ "$INSTALL_DEPS" -eq 0 ] && [ ! -d "$WORKSPACE_PATH/node_modules" ]; then
-  echo "Auto-enabling --install-deps (node_modules missing in $WORKSPACE_PATH)"
-  INSTALL_DEPS=1
-fi
-
 # ── host backend ──────────────────────────────────────────────────────────────
 # Docker-free: run the assistant directly on the host, in the workspace, routed
 # through the host egress proxy. The hard network guarantee is the host's
@@ -208,10 +193,8 @@ run_host_backend() {
     echo "         enforces nftables egress rules itself, or on a trusted machine." >&2
   fi
 
-  if [ "$INSTALL_DEPS" -eq 1 ]; then
-    echo "Installing dependencies (pnpm install)..."
-    pnpm install
-  fi
+  echo "Running workspace setup (${HOOK_SETUP:-.agent/setup.sh})..."
+  WORKSPACE="$WORKSPACE_PATH" bash "$WORKSPACE_PATH/${HOOK_SETUP:-.agent/setup.sh}"
 
   local preview_abs="$WORKSPACE_PATH/${HOOK_PREVIEW:-.agent/hooks/qa-preview.sh}"
   if [ -n "$INTERNAL_QA_BASE_URL" ]; then
@@ -370,9 +353,7 @@ container_cmd+="chown -R node:node /home/node/.codex /commandhistory 2>/dev/null
 container_cmd+="export PATH=/usr/local/share/pnpm-global:\$PATH && "
 container_cmd+="export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright && "
 
-if [ "$INSTALL_DEPS" -eq 1 ]; then
-  container_cmd+="su node -s /bin/bash -lc 'export PATH=/usr/local/share/pnpm-global:\$PATH && export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright && cd /workspace && pnpm install' && "
-fi
+container_cmd+="su node -s /bin/bash -lc 'export PATH=/usr/local/share/pnpm-global:\$PATH && export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright && cd /workspace && bash ${HOOK_SETUP:-.agent/setup.sh}' && "
 
 if [ -n "$INTERNAL_QA_BASE_URL" ]; then
   container_cmd+="su node -s /bin/bash -lc 'export PATH=/usr/local/share/pnpm-global:\$PATH && export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright && export QA_BASE_URL=$INTERNAL_QA_BASE_URL && cd /workspace && bash .agent/hooks/qa-preview.sh stop >/dev/null 2>&1 || true; playwright-cli close-all >/dev/null 2>&1 || true; pnpm build; bash .agent/hooks/qa-preview.sh start' && "
