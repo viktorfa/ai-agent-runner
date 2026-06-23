@@ -101,9 +101,11 @@ git clone https://github.com/viktorfa/plantegner.git
 cd plantegner
 git checkout -b auto/work
 
-# Optional: make ad-hoc git as agent traverse Squid after lockdown (the runner
-# already exports HTTPS_PROXY itself).
-git config --global http.proxy http://127.0.0.1:3128
+# Route the agent's git through Squid. REQUIRED for any manual git (fetch/pull/push)
+# after lockdown — the interactive shell has no HTTPS_PROXY, so direct git is dropped
+# by nftables. (The loop itself is fine; run_host_backend exports the proxy env.)
+git config --global http.proxy  http://127.0.0.1:3128
+git config --global https.proxy http://127.0.0.1:3128
 
 # Repo deps + the chromium binary for playwright-cli.
 pnpm install
