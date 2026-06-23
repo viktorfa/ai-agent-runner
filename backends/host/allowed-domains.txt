@@ -1,0 +1,33 @@
+# Squid allowlist (dstdomain) for the agent runner — steady-state loop egress.
+# A leading dot matches the domain + all its subdomains. Root-owned; the agent
+# cannot edit it.
+#
+# Keep this TIGHT: with no TLS interception every entry is a potential exfil
+# channel (mitigated by the restricted GitHub PAT, the absence of an npm publish
+# token, etc.). See docs/AGENT_DEV_SYSTEM.md §6/§7.
+#
+# Setup-only domains (fnm.vercel.app + nodejs.org for the toolchain, claude.ai for
+# the installer) are deliberately EXCLUDED — run the toolchain/clone steps BEFORE
+# lockdown.sh, while the agent still has open egress.
+
+# GitHub — clone/fetch, push auto/work, API, raw content
+.github.com
+.githubusercontent.com
+
+# npm registry + tarballs
+.npmjs.org
+
+# Anthropic / Claude Code
+.anthropic.com
+
+# Context7 MCP (library docs the agent may query)
+mcp.context7.com
+
+# Codex / OpenAI — uncomment when running the codex assistant on the host
+#.openai.com
+#.chatgpt.com
+
+# Playwright browser CDN — only needed to install/refresh browsers AFTER lockdown.
+# Normally browsers are installed during setup, so these stay commented.
+#cdn.playwright.dev
+#.azureedge.net

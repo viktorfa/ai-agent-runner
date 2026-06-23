@@ -1,0 +1,33 @@
+#!/usr/sbin/nft -f
+# Egress allowlist for the agent runner's host backend.
+#
+# Polices ONLY the `agent` user's outbound traffic. The agent may use loopback
+# (so it reaches the local Squid proxy on 127.0.0.1:3128 and any local dev/preview
+# server) and keep established flows — nothing else. No direct DNS, no direct 443:
+# Squid (a different, unpoliced uid) resolves names and reaches allowlisted hosts.
+# This also denies the agent any reach into the tailnet / other home machines (§7).
+#
+# Root-owned; loaded by lockdown.sh and nftables.service. See AGENT_DEV_SYSTEM §6/§7.
+
+# Idempotent reload: ensure the table exists, drop it, then redefine.
+add table inet agent_egress
+delete table inet agent_egress
+
+table inet agent_egress {
+  chain output {
+    type filter hook output priority 0; policy accept;
+
+    # Only police the agent user; all other users/services are untouched.
+    meta skuid != "agent" accept
+
+    # Loopback: reaches the local Squid proxy AND localhost dev/preview servers.
+    oifname "lo" accept
+
+    # Return traffic for already-approved (proxied) connections.
+    ct state established,related accept
+
+    # Everything else from the agent — direct DNS, direct 443, raw sockets,
+    # the tailnet — is refused (reject = fail fast rather than hang).
+    counter reject
+  }
+}
