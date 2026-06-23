@@ -167,7 +167,8 @@ if [ "$ASSISTANT" = "claude" ] && [ "${DEVCONTAINER:-}" = "true" ]; then
   cp /tmp/host-claude.json /home/node/.claude.json 2>/dev/null || true
 fi
 
-if [ "$ASSISTANT" = "codex" ]; then
+if [ "$ASSISTANT" = "codex" ] && [ "${DEVCONTAINER:-}" = "true" ]; then
+  # In-container Codex auth seeding. On the host backend Codex uses ~/.codex directly.
   sh "$RUNNER_DIR/lib/setup-codex-home.sh"
 fi
 

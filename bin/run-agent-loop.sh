@@ -19,6 +19,10 @@ INTERNAL_QA_BASE_URL=""
 STATE_NAMESPACE=${AGENT_STATE_NAMESPACE:-}
 BASH_HISTORY_VOLUME=${AGENT_BASH_HISTORY_VOLUME:-}
 CODEX_CONFIG_VOLUME=${AGENT_CODEX_CONFIG_VOLUME:-}
+# Isolation backend (machine-level, not per-repo): docker (default) or host.
+BACKEND=${AGENT_BACKEND:-docker}
+# Egress proxy for the host backend (the Squid allowlist). See AGENT_DEV_SYSTEM §6.
+PROXY_URL=${AGENT_HTTPS_PROXY:-}
 
 usage() {
   cat <<'EOF'
@@ -32,26 +36,28 @@ Options:
   --model <name>       Model override
   --effort <level>     Reasoning/effort level. Claude accepts: low, medium, high, max.
                        Codex forwards this to model_reasoning_effort in config.
-  --qa-base-url <url>  Use an already-running app for QA loops instead of the wrapper-managed in-container preview
-  --image <name>       Docker image name
-  --workspace <path>   Workspace path to mount at /workspace
-  --git-dir <path>     Override Git dir bind mount
+  --qa-base-url <url>  Use an already-running app for QA loops instead of the managed preview
+  --backend <name>     Isolation backend: docker (default) or host (Docker-free).
+                       Also AGENT_BACKEND env.
+  --proxy <url>        host backend: egress proxy (Squid allowlist) for the agent.
+                       Also AGENT_HTTPS_PROXY env.
+  --workspace <path>   Workspace path (mounted at /workspace for docker; cwd for host)
   --install-deps       Run pnpm install in the workspace before starting the loop
-  --state-namespace <name>
-                       Override the default per-worktree container state namespace
-  --bash-history-volume <name>
-                       Override the Docker volume used for /commandhistory
-  --codex-config-volume <name>
-                       Override the Docker volume used for /home/node/.codex
   -h, --help           Show this help
+
+ docker-backend only:
+  --image <name>       Docker image name (default room-planner-claude / .agent/config.sh)
+  --git-dir <path>     Override Git dir bind mount
+  --state-namespace <name>     Override the per-worktree container state namespace
+  --bash-history-volume <name> Override the Docker volume for /commandhistory
+  --codex-config-volume <name> Override the Docker volume for /home/node/.codex
 
 Examples:
   agent-runner/bin/run-agent-loop.sh --assistant codex --loop dev --iterations 1
   agent-runner/bin/run-agent-loop.sh --assistant codex --loop qa --iterations 1 --model gpt-5.4-mini --effort medium
-  agent-runner/bin/run-agent-loop.sh --assistant codex --loop qa --iterations 1
   agent-runner/bin/run-agent-loop.sh --assistant codex --loop qa --iterations 1 --qa-base-url http://host.docker.internal:4173
   agent-runner/bin/run-agent-loop.sh --assistant claude --loop dev --iterations 1 --model claude-sonnet-4-6 --effort high
-  agent-runner/bin/run-agent-loop.sh --assistant codex --loop dev --iterations 1 --state-namespace room-planner-codex-spark
+  agent-runner/bin/run-agent-loop.sh --assistant claude --loop dev --iterations 1 --backend host --proxy http://127.0.0.1:3128
 EOF
 }
 
@@ -79,6 +85,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --qa-base-url)
       QA_BASE_URL=${2:?missing value for --qa-base-url}
+      shift 2
+      ;;
+    --backend)
+      BACKEND=${2:?missing value for --backend}
+      shift 2
+      ;;
+    --proxy)
+      PROXY_URL=${2:?missing value for --proxy}
       shift 2
       ;;
     --image)
@@ -142,6 +156,14 @@ case "$ASSISTANT" in
     ;;
 esac
 
+case "$BACKEND" in
+  docker|host) ;;
+  *)
+    echo "ERROR: Unsupported backend: $BACKEND (use docker or host)"
+    exit 1
+    ;;
+esac
+
 if [ -z "$ITERATIONS" ]; then
   case "$LOOP_KIND" in
     dev) ITERATIONS=40 ;;
@@ -164,6 +186,63 @@ fi
 if [ "$INSTALL_DEPS" -eq 0 ] && [ ! -d "$WORKSPACE_PATH/node_modules" ]; then
   echo "Auto-enabling --install-deps (node_modules missing in $WORKSPACE_PATH)"
   INSTALL_DEPS=1
+fi
+
+# ── host backend ──────────────────────────────────────────────────────────────
+# Docker-free: run the assistant directly on the host, in the workspace, routed
+# through the host egress proxy. The hard network guarantee is the host's
+# root-owned nftables drop (provisioned out-of-band); this just points
+# proxy-aware tools at the allowlist. See docs/AGENT_DEV_SYSTEM.md §6.
+run_host_backend() {
+  cd "$WORKSPACE_PATH"
+
+  if [ -n "$PROXY_URL" ]; then
+    export HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL"
+    export https_proxy="$PROXY_URL" http_proxy="$PROXY_URL"
+    NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
+    export NO_PROXY no_proxy="$NO_PROXY"
+    echo "host backend: egress via proxy $PROXY_URL"
+  else
+    echo "WARNING: host backend without a proxy (--proxy / AGENT_HTTPS_PROXY)." >&2
+    echo "         This runner is not allowlisting egress; only safe if the host" >&2
+    echo "         enforces nftables egress rules itself, or on a trusted machine." >&2
+  fi
+
+  if [ "$INSTALL_DEPS" -eq 1 ]; then
+    echo "Installing dependencies (pnpm install)..."
+    pnpm install
+  fi
+
+  local preview_abs="$WORKSPACE_PATH/${HOOK_PREVIEW:-.agent/hooks/qa-preview.sh}"
+  if [ -n "$INTERNAL_QA_BASE_URL" ]; then
+    echo "Starting managed preview for QA at $INTERNAL_QA_BASE_URL ..."
+    WORKSPACE="$WORKSPACE_PATH" bash "$preview_abs" stop >/dev/null 2>&1 || true
+    playwright-cli close-all >/dev/null 2>&1 || true
+    pnpm build
+    WORKSPACE="$WORKSPACE_PATH" bash "$preview_abs" start
+    export QA_BASE_URL="$INTERNAL_QA_BASE_URL" AUDIT_BASE_URL="$INTERNAL_QA_BASE_URL"
+    trap "WORKSPACE='$WORKSPACE_PATH' bash '$preview_abs' stop >/dev/null 2>&1 || true; playwright-cli close-all >/dev/null 2>&1 || true" EXIT INT TERM
+  elif [ -n "$QA_BASE_URL" ]; then
+    export QA_BASE_URL
+    if [ "$LOOP_KIND" = "qa" ]; then
+      export AUDIT_BASE_URL="$QA_BASE_URL"
+    fi
+  fi
+
+  local loop_args=(--assistant "$ASSISTANT" --loop "$LOOP_KIND" --iterations "$ITERATIONS")
+  if [ -n "$MODEL" ]; then
+    loop_args+=(--model "$MODEL")
+  fi
+  if [ -n "$EFFORT" ]; then
+    loop_args+=(--effort "$EFFORT")
+  fi
+
+  WORKSPACE="$WORKSPACE_PATH" bash "$RUNNER_DIR/bin/agent-loop.sh" "${loop_args[@]}"
+}
+
+if [ "$BACKEND" = "host" ]; then
+  run_host_backend
+  exit $?
 fi
 
 workspace_basename=$(basename "$WORKSPACE_PATH")
