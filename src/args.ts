@@ -4,6 +4,8 @@ import type { Assistant, Backend, LoopRole, RunOptions } from './types'
 export interface CliArgs extends RunOptions {
 	backend: Backend
 	proxy?: string
+	/** orchestrate: discard unmerged work on the work branch and reset anyway. */
+	force: boolean
 }
 
 const ASSISTANTS = new Set<string>(['claude', 'codex'])
@@ -21,6 +23,7 @@ export function parseArgs(argv: string[]): CliArgs {
 	let effort: string | undefined
 	let proxy: string | undefined
 	let noPush = false
+	let force = false
 
 	for (let i = 0; i < argv.length; i++) {
 		const flag = argv[i]
@@ -70,6 +73,9 @@ export function parseArgs(argv: string[]): CliArgs {
 			case '--no-push':
 				noPush = true
 				break
+			case '--force':
+				force = true
+				break
 			default:
 				throw new Error(`unknown argument: ${flag}`)
 		}
@@ -82,6 +88,7 @@ export function parseArgs(argv: string[]): CliArgs {
 		iterations,
 		workspace,
 		noPush,
+		force,
 		...(task ? { task } : {}),
 		...(model ? { model } : {}),
 		...(effort ? { effort } : {}),

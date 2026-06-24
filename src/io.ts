@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import type { CliArgs } from './args'
-import { resolvePromptPath } from './config'
+import { type AgentConfig, promptPath } from './config'
 import { workBranchPushArgs } from './git'
+import type { OrchestrateDeps } from './orchestrate'
 import type { RunDeps } from './run'
 
 /** Spawn a command (optionally piping stdin); capture stdout while echoing it. */
@@ -28,10 +29,10 @@ function exec(
 }
 
 /** Real IO for `runLoop`: read the prompt, spawn the agent, push the branch. */
-export function makeDeps(args: CliArgs): RunDeps {
+export function makeDeps(args: CliArgs, config: AgentConfig): RunDeps {
 	const cwd = args.workspace
 	return {
-		readPrompt: () => readFile(resolvePromptPath(cwd, args.role), 'utf8'),
+		readPrompt: () => readFile(promptPath(cwd, config, args.role), 'utf8'),
 
 		spawnAgent: async (bin, argv, prompt) => {
 			const { stdout } = await exec(bin, argv, cwd, prompt)
@@ -47,5 +48,20 @@ export function makeDeps(args: CliArgs): RunDeps {
 		},
 
 		log: (line) => process.stderr.write(`${line}\n`),
+	}
+}
+
+/** Real IO for `orchestrate`: the run deps plus git + the setup hook. */
+export function makeOrchestrateDeps(
+	args: CliArgs,
+	config: AgentConfig,
+): OrchestrateDeps {
+	const cwd = args.workspace
+	return {
+		...makeDeps(args, config),
+		git: (gitArgs) => exec('git', gitArgs, cwd),
+		runSetup: async () => {
+			await exec('bash', [config.setup], cwd)
+		},
 	}
 }

@@ -1,16 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { resolvePromptPath } from './config'
+import { defaultConfig, promptPath, resolveConfig } from './config'
 
-describe('resolvePromptPath', () => {
-	it('maps dev to the dev-loop prompt', () => {
-		expect(resolvePromptPath('/repo', 'dev')).toBe(
-			'/repo/.agent/prompts/dev-loop.md',
-		)
+describe('resolveConfig', () => {
+	it('returns defaults for an empty partial', () => {
+		expect(resolveConfig({})).toEqual(defaultConfig())
 	})
 
-	it('maps qa to the qa-loop prompt', () => {
-		expect(resolvePromptPath('/repo', 'qa')).toBe(
-			'/repo/.agent/prompts/qa-loop.md',
+	it('overrides only the provided fields', () => {
+		const c = resolveConfig({ image: 'custom-img', baseBranch: 'main' })
+		expect(c.image).toBe('custom-img')
+		expect(c.baseBranch).toBe('main')
+		expect(c.workBranch).toBe('auto/work')
+	})
+
+	it('merges nested prompts/hooks without dropping siblings', () => {
+		const c = resolveConfig({ prompts: { dev: 'x.md' } as never })
+		expect(c.prompts.dev).toBe('x.md')
+		expect(c.prompts.qa).toBe('.agent/prompts/qa-loop.md')
+	})
+})
+
+describe('promptPath', () => {
+	it('joins the workspace with the role prompt', () => {
+		expect(promptPath('/repo', defaultConfig(), 'dev')).toBe(
+			'/repo/.agent/prompts/dev-loop.md',
 		)
 	})
 })

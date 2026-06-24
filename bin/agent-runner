@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Entry point for the TypeScript agent runner — runs the CLI via tsx.
+#
+# Usage (from the repo root):
+#   agent-runner/bin/agent-runner <run|orchestrate> [options]
+#
+# orchestrate = fetch + reset the work branch to base + setup + run (the host
+# entry; supersedes run-agent-loop.sh --backend host). run = one session only.
+set -euo pipefail
+
+RUNNER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+exec pnpm exec tsx "$RUNNER_DIR/src/cli.ts" "$@"
