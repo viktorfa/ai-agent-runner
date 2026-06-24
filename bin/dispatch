@@ -42,6 +42,8 @@ ROLE="${ROLE:-dev}"
 BACKEND="${BACKEND:-host}"
 BASE_BRANCH="${BASE_BRANCH:-master}"
 PROXY="${PROXY:-}"
+MODEL="${MODEL:-}"   # empty => the assistant CLI's own default
+EFFORT="${EFFORT:-}" # empty => the assistant CLI's own default
 
 runner="$REPO_PATH/agent-runner/bin/agent-runner"
 
@@ -55,6 +57,8 @@ remote=$(printf 'cd %q && git fetch origin %q && git checkout -B %q %q' \
 remote+=$(printf ' && %q orchestrate --assistant %q --loop %q --backend %q --workspace %q' \
 	"$runner" "$ASSISTANT" "$ROLE" "$BACKEND" "$REPO_PATH")
 [ -n "$PROXY" ] && remote+=$(printf ' --proxy %q' "$PROXY")
+[ -n "$MODEL" ] && remote+=$(printf ' --model %q' "$MODEL")
+[ -n "$EFFORT" ] && remote+=$(printf ' --effort %q' "$EFFORT")
 for arg in "$@"; do remote+=$(printf ' %q' "$arg"); done
 
 # One run per repo: a non-blocking flock so a second dispatch (e.g. the watcher

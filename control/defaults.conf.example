@@ -11,3 +11,7 @@ ROLE="dev"                         # dev | qa
 BACKEND="host"                     # host (per-user uid + nftables + Squid) | docker
 BASE_BRANCH="master"
 PROXY="http://127.0.0.1:3128"      # host backend egress proxy; leave empty for docker
+
+# Optional — leave empty/unset to use each assistant CLI's own default:
+# MODEL=""                         # a specific model id (e.g. for cost/quality tuning)
+# EFFORT=""                        # reasoning effort, e.g. high | medium | low (codex)
