@@ -9,4 +9,16 @@
 set -euo pipefail
 
 RUNNER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-exec pnpm exec tsx "$RUNNER_DIR/src/cli.ts" "$@"
+REPO="$(cd "$RUNNER_DIR/.." && pwd)"
+TSX="$REPO/node_modules/.bin/tsx"
+
+# Run tsx directly, NOT via `pnpm exec` — pnpm's pre-flight dep check would try to
+# `pnpm install` first (hitting npm before the CLI sets the egress proxy). The
+# CLI's own setup step installs deps (with the proxy) once it's running.
+if [ ! -x "$TSX" ]; then
+	echo "tsx not found at $TSX — run 'pnpm install' once" \
+		"(with HTTPS_PROXY=http://127.0.0.1:3128 if locked down)." >&2
+	exit 1
+fi
+
+exec "$TSX" "$RUNNER_DIR/src/cli.ts" "$@"
