@@ -1,6 +1,7 @@
 import { parseArgs } from './args'
 import { loadConfig } from './config'
-import { makeDeps, makeOrchestrateDeps } from './io'
+import { makeDeps, makeOrchestrateDeps, openSink } from './io'
+import { runLogPath } from './log-path'
 import { orchestrate } from './orchestrate'
 import { type IterationOutcome, runLoop } from './run'
 
@@ -22,21 +23,41 @@ async function main(): Promise<void> {
 		process.env.http_proxy = args.proxy
 	}
 
-	const outcomes: IterationOutcome[] =
-		command === 'orchestrate'
-			? await orchestrate(
-					args,
-					config,
-					makeOrchestrateDeps(args, config),
-					args.force,
-				)
-			: await runLoop(args, makeDeps(args, config))
+	// Persist a transcript so unattended runs (and the future watcher) are
+	// reviewable after the fact, alongside the Squid access log.
+	const logFile = runLogPath({
+		workspace: args.workspace,
+		assistant: args.assistant,
+		timestamp: new Date().toISOString(),
+	})
+	const { sink, close } = openSink(logFile)
+	sink(`# agent-runner ${command} — ${args.assistant}/${args.role}\n`)
+	process.stderr.write(`transcript: ${logFile}\n`)
 
-	const ok = outcomes.every((o) => o.result.ok)
-	process.stderr.write(
-		`\nDone: ${outcomes.length} iteration(s), ${ok ? 'ok' : 'with failures'}.\n`,
-	)
-	process.exit(ok ? 0 : 1)
+	try {
+		const outcomes: IterationOutcome[] =
+			command === 'orchestrate'
+				? await orchestrate(
+						args,
+						config,
+						makeOrchestrateDeps(args, config, sink),
+						args.force,
+					)
+				: await runLoop(args, makeDeps(args, config, sink))
+
+		const ok = outcomes.every((o) => o.result.ok)
+		const summary = `\nDone: ${outcomes.length} iteration(s), ${
+			ok ? 'ok' : 'with failures'
+		}.\n`
+		process.stderr.write(summary)
+		sink(summary)
+		await close()
+		process.exit(ok ? 0 : 1)
+	} catch (err) {
+		sink(`\nERROR: ${err instanceof Error ? err.message : String(err)}\n`)
+		await close()
+		throw err
+	}
 }
 
 main().catch((err: unknown) => {
