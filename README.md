@@ -15,18 +15,19 @@ src/
   types.ts            Assistant/Backend/RunOptions/AgentResult/AgentAdapter
   adapters/{claude,codex}.ts   per-tool buildArgv + parseResult (the quirks, typed)
   prompt.ts           assemblePrompt(base, task?) — the --task directive
-  git.ts              fetch/reset/unmerged-count + force-with-lease push args
-  config.ts           AgentConfig + loadConfig(<workspace>/.agent/config.json)
-  run.ts              runLoop(opts, deps) — iterations / drain; deps injected
-  orchestrate.ts      fetch + unmerged guard + reset auto/work + setup + runLoop
+  git.ts              fetch/reset/merge/unmerged-count + force-with-lease push
+  config.ts           AgentConfig (incl. workBranchMode) + loadConfig(.agent/config.json)
+  run.ts              runLoop(opts, deps) — iterations / drain + stall-detection
+  orchestrate.ts      fetch + prepare work branch (reset|accumulate) + setup + runLoop
   args.ts             parseArgs — the CLI surface
   log-path.ts         runLogPath — transcript path
   io.ts               real spawn/fs/push/git + transcript sink (OS-glue edge)
   cli.ts              entry: run | orchestrate
 bin/
   agent-runner        host entry: runs cli.ts via tsx directly
-  dispatch            control plane: run as viktor, drops to a repo's user
-control/              operator registry templates + setup (see control/README.md)
+  dispatch            control plane: run as viktor, drops to a repo's user (flock'd)
+  watch               control plane: poll loop (systemd --user) — drains each repo
+control/              operator registry templates + systemd unit (see control/README.md)
 ```
 
 ## Design
@@ -56,8 +57,17 @@ bin/agent-runner orchestrate --assistant codex --backend host \
 Key flags: `--task <id>` (one task) or `--drain` (work the board until empty),
 `--iterations N`, `--backend host|docker`, `--proxy`, `--no-push`, `--force`.
 
+**Work-branch mode** is per-repo (`.agent/config.json` → `workBranchMode`): `reset`
+(clean diff per run, guarded — review per PR) or `accumulate` (keep `auto/work`,
+merge base in, stack tasks — merge to base periodically). floorplanner uses
+`accumulate`.
+
+**Operation** is normally via the control plane, not these commands directly:
+`bin/dispatch <repo> [opts]` (run as viktor → drops to the repo's user) and
+`bin/watch` (the systemd poll loop). See `control/README.md`.
+
 See `docs/AGENT_DEV_SYSTEM.md` for the full system (isolation, security, the
-control plane, the responsibility split) and `control/README.md` for dispatch.
+control plane, the responsibility split).
 
 ## Extracting to its own repo (later)
 The decoupling is done; the move is mechanical:

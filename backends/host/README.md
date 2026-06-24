@@ -129,25 +129,25 @@ sudo AGENT_USER=agent bash /tmp/agent-host/lockdown.sh
 Applies the nftables allowlist and prints verification commands (example.com must
 fail; api.github.com via the proxy must work). Run them.
 
-## Step 6 — [you/agent] smoke test one iteration
+## Step 6 — [you] smoke test one run
 
-Mark a task ready on the board if needed (`cd ~/repos/plantegner && pnpm exec
-backlog task list --plain`), then run the host backend for a single iteration:
+Mark a task ready on the board if needed (`pnpm exec backlog task list --plain`),
+then trigger a run from **viktor** (the control plane) via dispatch:
 
 ```
-sudo -iu agent
-cd ~/repos/plantegner
-./agent-runner/bin/run-agent-loop.sh \
-  --assistant claude --loop dev --backend host \
-  --proxy http://127.0.0.1:3128 --iterations 1
+/home/agent/repos/plantegner/agent-runner/bin/dispatch floorplanner --task <id>
 ```
 
-Watch it claim a task, implement, run gates, and commit. The loop **pushes the
-working branch (`auto/work`) to `origin` after each iteration automatically** (set
-`AGENT_NO_PUSH=1` to disable). It also runs `.agent/setup.sh` first (`pnpm install`
-+ `skillshare sync`), so the manual `pnpm install` in Step 4 is just to get the
-preview built before the first run. Back on your machine:
+(or `--drain` to work the whole board). `dispatch` drops to the agent user via
+`sudo`, refreshes the runner code, then runs `agent-runner orchestrate`: it fetches,
+prepares `auto/work` per the repo's `workBranchMode`, runs `.agent/setup.sh`
+(`pnpm install` + `skillshare sync`), and runs the loop — pushing `auto/work` to
+`origin` after each successful task. The manual `pnpm install` in Step 4 is just to
+build the preview before the first run. Back on your machine:
 `git fetch origin auto/work && git log --oneline origin/auto/work -5`.
+
+Set up the operator registry + the passwordless sudoers rule + the systemd watcher
+that automates all of this — see **`agent-runner/control/README.md`**.
 
 ---
 
