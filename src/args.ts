@@ -19,6 +19,7 @@ export function parseArgs(argv: string[]): CliArgs {
 	let iterations = 1
 	let workspace = '.'
 	let task: string | undefined
+	let drain = false
 	let model: string | undefined
 	let effort: string | undefined
 	let proxy: string | undefined
@@ -61,6 +62,9 @@ export function parseArgs(argv: string[]): CliArgs {
 			case '--task':
 				task = value()
 				break
+			case '--drain':
+				drain = true
+				break
 			case '--model':
 				model = value()
 				break
@@ -81,12 +85,17 @@ export function parseArgs(argv: string[]): CliArgs {
 		}
 	}
 
+	if (task && drain) {
+		throw new Error('--task and --drain are mutually exclusive')
+	}
+
 	return {
 		assistant,
 		role,
 		backend,
 		iterations,
 		workspace,
+		drain,
 		noPush,
 		force,
 		...(task ? { task } : {}),

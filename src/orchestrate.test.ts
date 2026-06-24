@@ -28,6 +28,7 @@ function makeDeps(overrides?: { unmerged?: number }) {
 		readPrompt: async () => 'BASE',
 		spawnAgent,
 		push,
+		hasReadyWork: async () => false,
 		log: () => {},
 		git,
 		runSetup,

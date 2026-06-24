@@ -14,8 +14,15 @@ export interface RunOptions {
 	/**
 	 * When set, the agent works only this task instead of choosing from the
 	 * board (an explicit assignment directive is appended to the prompt).
+	 * Mutually exclusive with `drain`.
 	 */
 	task?: string
+	/**
+	 * Drain the board: keep running iterations (the agent picks the next ready
+	 * task each time) until no ready tasks remain, bounded by a safety cap.
+	 * Mutually exclusive with `task`; ignores `iterations`.
+	 */
+	drain?: boolean
 	model?: string
 	effort?: string
 	/** Skip pushing the work branch after each iteration. */

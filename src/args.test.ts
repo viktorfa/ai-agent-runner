@@ -40,6 +40,17 @@ describe('parseArgs', () => {
 		expect(a.noPush).toBe(true)
 	})
 
+	it('parses --drain and defaults it off', () => {
+		expect(parseArgs([]).drain).toBe(false)
+		expect(parseArgs(['--drain']).drain).toBe(true)
+	})
+
+	it('rejects --task together with --drain', () => {
+		expect(() => parseArgs(['--task', 'TASK-1', '--drain'])).toThrow(
+			/mutually exclusive/,
+		)
+	})
+
 	it('rejects an unknown assistant', () => {
 		expect(() => parseArgs(['--assistant', 'gpt'])).toThrow(/assistant/)
 	})
