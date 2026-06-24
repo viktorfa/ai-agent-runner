@@ -58,5 +58,10 @@ remote+=$(printf ' && %q orchestrate --assistant %q --loop %q --backend %q --wor
 for arg in "$@"; do remote+=$(printf ' %q' "$arg"); done
 
 echo "dispatch: $repo -> user=$REPO_USER backend=$BACKEND assistant=$ASSISTANT role=$ROLE" >&2
+# `bash -lic` (login + interactive) so the agent's real toolchain loads: node/pnpm
+# (fnm) and the agent CLIs (pnpm global bin) live in .bashrc, which only runs for
+# interactive shells — a plain `bash -c` has none of them. This keeps the runner
+# env-agnostic (the machine's dotfiles own the toolchain). The harmless "no job
+# control in this shell" notice on stderr is expected (no controlling tty).
 # `exec` so this script's file is not held open while the reset rewrites the tree.
-exec sudo -iu "$REPO_USER" bash -c "$remote"
+exec sudo -iu "$REPO_USER" bash -lic "$remote"
