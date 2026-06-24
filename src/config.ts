@@ -1,11 +1,20 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { LoopRole } from './types'
+import type { Assistant, LoopRole } from './types'
 
 /** Per-repo runner config (the typed successor to .agent/config.sh). */
 export interface AgentConfig {
 	/** Docker image for the docker backend. */
 	image: string
+	/**
+	 * How to drive the agent for this repo. These live here (versioned, portable)
+	 * rather than in the operator registry: the model id is assistant-specific, so
+	 * the three travel together. A `--model`/`--effort`/`--assistant` CLI flag still
+	 * overrides for a one-off run.
+	 */
+	assistant: Assistant
+	model?: string
+	effort?: string
 	/** Branch new work is based on. */
 	baseBranch: string
 	/** Branch the runner commits + pushes to. */
@@ -29,6 +38,7 @@ export interface AgentConfig {
 export function defaultConfig(): AgentConfig {
 	return {
 		image: 'room-planner-claude',
+		assistant: 'claude',
 		baseBranch: 'master',
 		workBranch: 'auto/work',
 		workBranchMode: 'reset',
@@ -50,12 +60,15 @@ export function resolveConfig(partial: Partial<AgentConfig>): AgentConfig {
 	const d = defaultConfig()
 	return {
 		image: partial.image ?? d.image,
+		assistant: partial.assistant ?? d.assistant,
 		baseBranch: partial.baseBranch ?? d.baseBranch,
 		workBranch: partial.workBranch ?? d.workBranch,
 		workBranchMode: partial.workBranchMode ?? d.workBranchMode,
 		setup: partial.setup ?? d.setup,
 		prompts: { ...d.prompts, ...partial.prompts },
 		hooks: { ...d.hooks, ...partial.hooks },
+		...(partial.model !== undefined ? { model: partial.model } : {}),
+		...(partial.effort !== undefined ? { effort: partial.effort } : {}),
 	}
 }
 

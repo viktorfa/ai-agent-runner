@@ -25,6 +25,15 @@ describe('resolveConfig', () => {
 			'accumulate',
 		)
 	})
+
+	it('defaults assistant to claude and carries model/effort when set', () => {
+		expect(defaultConfig().assistant).toBe('claude')
+		expect(defaultConfig().model).toBeUndefined()
+		const c = resolveConfig({ assistant: 'codex', model: 'm', effort: 'high' })
+		expect(c.assistant).toBe('codex')
+		expect(c.model).toBe('m')
+		expect(c.effort).toBe('high')
+	})
 })
 
 describe('promptPath', () => {

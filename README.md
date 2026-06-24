@@ -16,7 +16,7 @@ src/
   adapters/{claude,codex}.ts   per-tool buildArgv + parseResult (the quirks, typed)
   prompt.ts           assemblePrompt(base, task?) — the --task directive
   git.ts              fetch/reset/merge/unmerged-count + force-with-lease push
-  config.ts           AgentConfig (incl. workBranchMode) + loadConfig(.agent/config.json)
+  config.ts           AgentConfig (assistant/model/effort/workBranchMode) + loadConfig(.agent/config.json)
   run.ts              runLoop(opts, deps) — iterations / drain + stall-detection
   orchestrate.ts      fetch + prepare work branch (reset|accumulate) + setup + runLoop
   args.ts             parseArgs — the CLI surface
@@ -57,10 +57,14 @@ bin/agent-runner orchestrate --assistant codex --backend host \
 Key flags: `--task <id>` (one task) or `--drain` (work the board until empty),
 `--iterations N`, `--backend host|docker`, `--proxy`, `--no-push`, `--force`.
 
-**Work-branch mode** is per-repo (`.agent/config.json` → `workBranchMode`): `reset`
-(clean diff per run, guarded — review per PR) or `accumulate` (keep `auto/work`,
-merge base in, stack tasks — merge to base periodically). floorplanner uses
-`accumulate`.
+**Config precedence:** CLI flag → the repo's `.agent/config.json` → built-in
+default. So `assistant`, `model`, `effort`, and `workBranchMode` live in
+`.agent/config.json` (versioned with the repo); the registry supplies only the
+machine binding (path/user/backend/proxy); `role` is per-dispatch (default `dev`).
+
+**Work-branch mode** (`.agent/config.json` → `workBranchMode`): `reset` (clean diff
+per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge base in,
+stack tasks — merge to base periodically). floorplanner uses `accumulate`.
 
 **Operation** is normally via the control plane, not these commands directly:
 `bin/dispatch <repo> [opts]` (run as viktor → drops to the repo's user) and

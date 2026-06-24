@@ -1,9 +1,24 @@
+import type { AgentConfig } from './config'
 import type { Assistant, Backend, LoopRole, RunOptions } from './types'
 
-/** Parsed CLI arguments: a RunOptions plus launcher-level concerns. */
-export interface CliArgs extends RunOptions {
+/**
+ * Parsed CLI flags. `assistant`/`model`/`effort`/`role` are optional one-off
+ * overrides — when absent they fall back to the repo's `.agent/config.json`
+ * (see `resolveRunOptions`). `backend`/`proxy` are machine concerns the launcher
+ * (dispatch) supplies.
+ */
+export interface CliArgs {
+	assistant?: Assistant
+	role?: LoopRole
 	backend: Backend
+	iterations: number
+	workspace: string
+	task?: string
+	drain: boolean
+	model?: string
+	effort?: string
 	proxy?: string
+	noPush: boolean
 	/** orchestrate: discard unmerged work on the work branch and reset anyway. */
 	force: boolean
 }
@@ -13,8 +28,8 @@ const BACKENDS = new Set<string>(['docker', 'host'])
 const ROLES = new Set<string>(['dev', 'qa'])
 
 export function parseArgs(argv: string[]): CliArgs {
-	let assistant: Assistant = 'claude'
-	let role: LoopRole = 'dev'
+	let assistant: Assistant | undefined
+	let role: LoopRole | undefined
 	let backend: Backend = 'docker'
 	let iterations = 1
 	let workspace = '.'
@@ -90,17 +105,41 @@ export function parseArgs(argv: string[]): CliArgs {
 	}
 
 	return {
-		assistant,
-		role,
 		backend,
 		iterations,
 		workspace,
 		drain,
 		noPush,
 		force,
+		...(assistant ? { assistant } : {}),
+		...(role ? { role } : {}),
 		...(task ? { task } : {}),
 		...(model ? { model } : {}),
 		...(effort ? { effort } : {}),
 		...(proxy ? { proxy } : {}),
+	}
+}
+
+/**
+ * Resolve the effective run options: CLI flag wins, else the repo's config
+ * (`.agent/config.json`), else a built-in default. Role is per-dispatch and
+ * defaults to `dev` (qa is opt-in via `--loop qa`).
+ */
+export function resolveRunOptions(
+	args: CliArgs,
+	config: AgentConfig,
+): RunOptions {
+	const model = args.model ?? config.model
+	const effort = args.effort ?? config.effort
+	return {
+		assistant: args.assistant ?? config.assistant,
+		role: args.role ?? 'dev',
+		iterations: args.iterations,
+		workspace: args.workspace,
+		drain: args.drain,
+		noPush: args.noPush,
+		...(args.task ? { task: args.task } : {}),
+		...(model ? { model } : {}),
+		...(effort ? { effort } : {}),
 	}
 }

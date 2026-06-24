@@ -1,4 +1,4 @@
-import { parseArgs } from './args'
+import { parseArgs, resolveRunOptions } from './args'
 import { loadConfig } from './config'
 import { makeDeps, makeOrchestrateDeps, openSink } from './io'
 import { runLogPath } from './log-path'
@@ -14,6 +14,8 @@ async function main(): Promise<void> {
 
 	const args = parseArgs(rest)
 	const config = await loadConfig(args.workspace)
+	// CLI flag wins, else the repo's .agent/config.json, else a default.
+	const opts = resolveRunOptions(args, config)
 
 	// Route the agent (and its children) through the host egress proxy.
 	if (args.proxy) {
@@ -23,27 +25,27 @@ async function main(): Promise<void> {
 		process.env.http_proxy = args.proxy
 	}
 
-	// Persist a transcript so unattended runs (and the future watcher) are
-	// reviewable after the fact, alongside the Squid access log.
+	// Persist a transcript so unattended runs (and the watcher) are reviewable
+	// after the fact, alongside the Squid access log.
 	const logFile = runLogPath({
-		workspace: args.workspace,
-		assistant: args.assistant,
+		workspace: opts.workspace,
+		assistant: opts.assistant,
 		timestamp: new Date().toISOString(),
 	})
 	const { sink, close } = openSink(logFile)
-	sink(`# agent-runner ${command} — ${args.assistant}/${args.role}\n`)
+	sink(`# agent-runner ${command} — ${opts.assistant}/${opts.role}\n`)
 	process.stderr.write(`transcript: ${logFile}\n`)
 
 	try {
 		const outcomes: IterationOutcome[] =
 			command === 'orchestrate'
 				? await orchestrate(
-						args,
+						opts,
 						config,
-						makeOrchestrateDeps(args, config, sink),
+						makeOrchestrateDeps(opts, config, sink),
 						args.force,
 					)
-				: await runLoop(args, makeDeps(args, config, sink))
+				: await runLoop(opts, makeDeps(opts, config, sink))
 
 		const ok = outcomes.every((o) => o.result.ok)
 		const summary = `\nDone: ${outcomes.length} iteration(s), ${

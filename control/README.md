@@ -23,10 +23,13 @@ cp /home/agent/repos/plantegner/agent-runner/control/repos/floorplanner.conf.exa
 ```
 
 `defaults.conf` sets fleet-wide values; each `repos/<name>.conf` overrides them and
-must set `REPO_PATH` + `REPO_USER`. Available knobs: `ASSISTANT`, `ROLE`, `BACKEND`,
-`BASE_BRANCH`, `PROXY`, and optionally `MODEL` / `EFFORT` (left empty → each
-assistant CLI's own default; set them to tune cost/quality per repo). **Secrets
-never go here** (PATs are `0600` files owned by the repo user).
+must set `REPO_PATH` + `REPO_USER`. The registry holds only the **machine binding**:
+`REPO_PATH`, `REPO_USER`, `BACKEND`, `BASE_BRANCH`, `PROXY`. **How to drive the agent
+— `assistant`, `model`, `effort` — lives in each repo's `.agent/config.json`**
+(versioned with the code; a model id is assistant-specific, so the three travel
+together). **Role** is per-dispatch and defaults to `dev` (`dispatch <repo> --loop
+qa` to override). **Secrets never go here** (PATs are `0600` files owned by the repo
+user).
 
 ## Passwordless dispatch (sudoers)
 `dispatch` drops to the repo user with `sudo -iu`. Without a rule it prompts for

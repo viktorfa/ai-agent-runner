@@ -2,11 +2,11 @@ import { spawn } from 'node:child_process'
 import { createWriteStream, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { CliArgs } from './args'
 import { type AgentConfig, promptPath } from './config'
 import { workBranchPushArgs } from './git'
 import type { OrchestrateDeps } from './orchestrate'
 import type { RunDeps } from './run'
+import type { RunOptions } from './types'
 
 /** Mirrors everything the run prints to a transcript file. */
 export type Sink = (text: string) => void
@@ -93,13 +93,13 @@ async function readyCount(cwd: string): Promise<number> {
 
 /** Real IO for `runLoop`: read the prompt, spawn the agent, push the branch. */
 export function makeDeps(
-	args: CliArgs,
+	opts: RunOptions,
 	config: AgentConfig,
 	sink?: Sink,
 ): RunDeps {
-	const cwd = args.workspace
+	const cwd = opts.workspace
 	return {
-		readPrompt: () => readFile(promptPath(cwd, config, args.role), 'utf8'),
+		readPrompt: () => readFile(promptPath(cwd, config, opts.role), 'utf8'),
 
 		spawnAgent: async (bin, argv, prompt) => {
 			const { stdout } = await exec(bin, argv, cwd, { sink, stdin: prompt })
@@ -132,13 +132,13 @@ export function makeDeps(
 
 /** Real IO for `orchestrate`: the run deps plus git + the setup hook. */
 export function makeOrchestrateDeps(
-	args: CliArgs,
+	opts: RunOptions,
 	config: AgentConfig,
 	sink?: Sink,
 ): OrchestrateDeps {
-	const cwd = args.workspace
+	const cwd = opts.workspace
 	return {
-		...makeDeps(args, config, sink),
+		...makeDeps(opts, config, sink),
 		git: (gitArgs) => exec('git', gitArgs, cwd, { sink }),
 		runSetup: async () => {
 			await exec('bash', [config.setup], cwd, { sink })

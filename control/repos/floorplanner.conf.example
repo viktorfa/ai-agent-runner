@@ -6,11 +6,9 @@
 
 REPO_PATH="/home/agent/repos/plantegner"   # the clone the agent operates on
 REPO_USER="agent"                           # Linux user dispatch drops to (one-per-repo later)
-ASSISTANT="codex"                           # override the fleet default
-# MODEL=""                                  # override per repo; empty = assistant default
-# EFFORT=""                                 # e.g. high | medium | low
 
-# Inherited from defaults.conf unless set: ROLE, BACKEND, BASE_BRANCH, PROXY, MODEL, EFFORT.
+# Inherited from defaults.conf unless set: BACKEND, BASE_BRANCH, PROXY.
+# assistant / model / effort live in this repo's .agent/config.json, not here.
 
 # Used by provisioning (future), not by dispatch yet:
 PERMISSION_CLASS="A"                        # A = sandbox/local; B = production — see §8
