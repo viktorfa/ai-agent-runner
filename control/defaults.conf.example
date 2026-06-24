@@ -1,0 +1,13 @@
+# Control-plane FLEET DEFAULTS — sourced by `dispatch` before the per-repo file.
+#
+# OPERATOR config: copy to ~/.config/agent-runner/defaults.conf on the executor.
+# This is NOT version-controlled with any product repo. Plain shell so the
+# viktor-side dispatch needs no toolchain (viktor has no Node on the executor).
+#
+# A per-repo repos/<name>.conf overrides any of these.
+
+ASSISTANT="claude"                 # claude | codex
+ROLE="dev"                         # dev | qa
+BACKEND="host"                     # host (per-user uid + nftables + Squid) | docker
+BASE_BRANCH="master"
+PROXY="http://127.0.0.1:3128"      # host backend egress proxy; leave empty for docker

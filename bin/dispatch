@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Control-plane dispatch — run as VIKTOR (the trusted operator), never as an agent.
+#
+#   dispatch <repo> [orchestrate options...]
+#   dispatch floorplanner --drain --force
+#   dispatch floorplanner --task TASK-15
+#
+# Resolves <repo> from the operator registry (~/.config/agent-runner, override with
+# $AGENT_RUNNER_CONFIG), drops to that repo's Linux user, refreshes the runner code,
+# then hands off to `agent-runner orchestrate` — which fetches, runs the unmerged
+# guard, and resets auto/work itself. You never touch branches by hand.
+#
+# Passwordless once the sudoers rule is in place (see control/README.md); until
+# then sudo prompts for viktor's password once per dispatch.
+set -euo pipefail
+
+CONFIG_DIR="${AGENT_RUNNER_CONFIG:-$HOME/.config/agent-runner}"
+
+die() {
+	echo "dispatch: $*" >&2
+	exit 1
+}
+
+[ $# -ge 1 ] || die "usage: dispatch <repo> [orchestrate options...]"
+repo="$1"
+shift
+
+repo_conf="$CONFIG_DIR/repos/$repo.conf"
+[ -f "$repo_conf" ] || die "no registry entry at $repo_conf"
+
+# Fleet defaults first, then the per-repo file overrides them.
+defaults="$CONFIG_DIR/defaults.conf"
+# shellcheck disable=SC1090
+[ -f "$defaults" ] && source "$defaults"
+# shellcheck disable=SC1090
+source "$repo_conf"
+
+: "${REPO_PATH:?$repo_conf must set REPO_PATH}"
+: "${REPO_USER:?$repo_conf must set REPO_USER}"
+ASSISTANT="${ASSISTANT:-claude}"
+ROLE="${ROLE:-dev}"
+BACKEND="${BACKEND:-host}"
+BASE_BRANCH="${BASE_BRANCH:-master}"
+PROXY="${PROXY:-}"
+
+runner="$REPO_PATH/agent-runner/bin/agent-runner"
+
+# Build the remote command with printf %q so every interpolated value is
+# shell-safe — no string-quoting guesswork (that bug class is why we left the old
+# runner). Pre-sync the base branch so the runner CODE in the tree is current
+# before we invoke it (needed only while the runner lives inside the repo; goes
+# away on extraction). orchestrate then manages auto/work on its own.
+remote=$(printf 'cd %q && git fetch origin %q && git checkout -B %q %q' \
+	"$REPO_PATH" "$BASE_BRANCH" "$BASE_BRANCH" "origin/$BASE_BRANCH")
+remote+=$(printf ' && %q orchestrate --assistant %q --loop %q --backend %q --workspace %q' \
+	"$runner" "$ASSISTANT" "$ROLE" "$BACKEND" "$REPO_PATH")
+[ -n "$PROXY" ] && remote+=$(printf ' --proxy %q' "$PROXY")
+for arg in "$@"; do remote+=$(printf ' %q' "$arg"); done
+
+echo "dispatch: $repo -> user=$REPO_USER backend=$BACKEND assistant=$ASSISTANT role=$ROLE" >&2
+# `exec` so this script's file is not held open while the reset rewrites the tree.
+exec sudo -iu "$REPO_USER" bash -c "$remote"

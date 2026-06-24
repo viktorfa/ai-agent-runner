@@ -1,0 +1,15 @@
+# Per-repo registry entry — copy to ~/.config/agent-runner/repos/floorplanner.conf
+# and edit. Inherits everything from defaults.conf unless overridden here.
+#
+# SECRETS DO NOT BELONG HERE. PATs live as 0600 files owned by REPO_USER; this
+# file only names the user.
+
+REPO_PATH="/home/agent/repos/plantegner"   # the clone the agent operates on
+REPO_USER="agent"                           # Linux user dispatch drops to (one-per-repo later)
+ASSISTANT="codex"                           # override the fleet default
+
+# Inherited from defaults.conf unless set: ROLE, BACKEND, BASE_BRANCH, PROXY.
+
+# Used by provisioning (future), not by dispatch yet:
+PERMISSION_CLASS="A"                        # A = sandbox/local; B = production — see §8
+EXTRA_ALLOWED_DOMAINS=""                    # space-separated; composed onto the baseline allowlist
