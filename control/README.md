@@ -49,3 +49,31 @@ First time only: the agent clone must already contain `bin/dispatch` (sync it on
 with `sudo -iu agent git -C /home/agent/repos/plantegner fetch && \
 git -C /home/agent/repos/plantegner reset --hard origin/master`). After that the
 dispatch refreshes the runner code on every run.
+
+## Watcher (push and walk away)
+The watcher (`bin/watch`) runs as viktor and polls the registry, draining each
+repo's board through `dispatch` — so you just push tickets, no SSH, no manual
+dispatch. It's stateless: the board is the queue, dispatch's `flock` is the
+per-repo mutex (a poll while a run is active returns 75 and is skipped), and
+`orchestrate` early-exits when nothing's ready (idle polls are cheap).
+
+Install the systemd `--user` unit (as viktor on the executor):
+```bash
+loginctl enable-linger "$USER"        # keep it running while you're logged out (overnight!)
+mkdir -p ~/.config/systemd/user
+cp /home/agent/repos/plantegner/agent-runner/control/systemd/agent-watch.service \
+   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now agent-watch.service
+```
+
+- **Logs:** `journalctl --user -u agent-watch -f`
+- **Pause:** `touch ~/.config/agent-runner/PAUSED` (all repos) or
+  `~/.config/agent-runner/repos/<name>.paused` (one repo). Remove to resume.
+- **Stop:** `systemctl --user stop agent-watch`
+- **Cadence:** `WATCH_INTERVAL` (seconds, default 120) in the unit's `Environment=`.
+
+With floorplanner in `accumulate` mode the watcher just keeps `auto/work` drained;
+you merge `auto/work → master` periodically. To update the watcher/dispatch code,
+`systemctl --user restart agent-watch` after the clone has the new commit (the
+running loop is parsed in memory, so a reset mid-run won't disturb it).

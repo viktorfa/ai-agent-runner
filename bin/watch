@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Watcher — run as VIKTOR (typically via the systemd --user unit). Polls the
+# operator registry and drains each repo's board through `dispatch`, so you just
+# push tickets and walk away; no SSH, no manual dispatch.
+#
+# Stateless by design: the board is the queue, dispatch's flock is the per-repo
+# mutex, and orchestrate early-exits when nothing is ready — so a poll over an
+# idle/active repo is cheap (a busy repo's dispatch returns 75 and is skipped).
+#
+# Pause: `touch $CONFIG_DIR/PAUSED` (all repos) or `$CONFIG_DIR/repos/<name>.paused`
+# (one repo). Stop entirely: `systemctl --user stop agent-watch`.
+set -uo pipefail
+
+CONFIG_DIR="${AGENT_RUNNER_CONFIG:-$HOME/.config/agent-runner}"
+INTERVAL="${WATCH_INTERVAL:-120}"
+DISPATCH="$(cd "$(dirname "$0")" && pwd)/dispatch"
+
+log() { printf '[watch %s] %s\n' "$(date -Is)" "$*"; }
+
+log "starting; interval=${INTERVAL}s config=$CONFIG_DIR"
+while true; do
+	if [ -f "$CONFIG_DIR/PAUSED" ]; then
+		log "paused (remove $CONFIG_DIR/PAUSED to resume)"
+		sleep "$INTERVAL"
+		continue
+	fi
+
+	shopt -s nullglob
+	for conf in "$CONFIG_DIR"/repos/*.conf; do
+		repo="$(basename "$conf" .conf)"
+		[ -f "$CONFIG_DIR/repos/$repo.paused" ] && continue
+		"$DISPATCH" "$repo" --drain
+		rc=$?
+		case "$rc" in
+		0) ;;  # ran a drain, or early-exited because nothing was ready
+		75) ;; # a run for this repo is already active (flock) — skip
+		*) log "dispatch $repo exited $rc" ;;
+		esac
+	done
+
+	sleep "$INTERVAL"
+done
