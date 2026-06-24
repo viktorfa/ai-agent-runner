@@ -10,6 +10,14 @@ export interface AgentConfig {
 	baseBranch: string
 	/** Branch the runner commits + pushes to. */
 	workBranch: string
+	/**
+	 * How the work branch is prepared each run:
+	 * - `reset` — discard + reset to base every run (one reviewable diff per run,
+	 *   guarded against unmerged work). For repos that review per PR.
+	 * - `accumulate` — keep the long-lived work branch and merge base in, so many
+	 *   tasks pile up across runs; you merge the branch to base periodically.
+	 */
+	workBranchMode: 'reset' | 'accumulate'
 	/** Workspace-prep hook (pnpm install, skillshare sync, …). */
 	setup: string
 	/** Loop prompt per role (workspace-relative). */
@@ -23,6 +31,7 @@ export function defaultConfig(): AgentConfig {
 		image: 'room-planner-claude',
 		baseBranch: 'master',
 		workBranch: 'auto/work',
+		workBranchMode: 'reset',
 		setup: '.agent/setup.sh',
 		prompts: {
 			dev: '.agent/prompts/dev-loop.md',
@@ -43,6 +52,7 @@ export function resolveConfig(partial: Partial<AgentConfig>): AgentConfig {
 		image: partial.image ?? d.image,
 		baseBranch: partial.baseBranch ?? d.baseBranch,
 		workBranch: partial.workBranch ?? d.workBranch,
+		workBranchMode: partial.workBranchMode ?? d.workBranchMode,
 		setup: partial.setup ?? d.setup,
 		prompts: { ...d.prompts, ...partial.prompts },
 		hooks: { ...d.hooks, ...partial.hooks },

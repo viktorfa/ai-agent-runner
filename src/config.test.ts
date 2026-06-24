@@ -18,6 +18,13 @@ describe('resolveConfig', () => {
 		expect(c.prompts.dev).toBe('x.md')
 		expect(c.prompts.qa).toBe('.agent/prompts/qa-loop.md')
 	})
+
+	it('defaults workBranchMode to reset and lets it be overridden', () => {
+		expect(defaultConfig().workBranchMode).toBe('reset')
+		expect(resolveConfig({ workBranchMode: 'accumulate' }).workBranchMode).toBe(
+			'accumulate',
+		)
+	})
 })
 
 describe('promptPath', () => {

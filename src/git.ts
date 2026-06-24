@@ -29,3 +29,18 @@ export function unmergedCountArgs(
 ): string[] {
 	return ['rev-list', '--count', `origin/${baseBranch}..origin/${workBranch}`]
 }
+
+/** Exit 0 (prints sha) if origin/<branch> exists, else non-zero — for accumulate. */
+export function remoteBranchExistsArgs(branch: string): string[] {
+	return ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]
+}
+
+/** Merge origin/<base> into the current branch (accumulate: absorb new tickets). */
+export function mergeBaseArgs(baseBranch: string): string[] {
+	return ['merge', '--no-edit', `origin/${baseBranch}`]
+}
+
+/** Abort an in-progress merge (used when accumulate hits a conflict). */
+export function mergeAbortArgs(): string[] {
+	return ['merge', '--abort']
+}

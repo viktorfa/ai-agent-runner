@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
 	fetchArgs,
+	mergeAbortArgs,
+	mergeBaseArgs,
+	remoteBranchExistsArgs,
 	resetWorkBranchArgs,
 	unmergedCountArgs,
 	workBranchPushArgs,
@@ -37,5 +40,28 @@ describe('prep args', () => {
 			'--count',
 			'origin/master..origin/auto/work',
 		])
+	})
+})
+
+describe('accumulate args', () => {
+	it('remoteBranchExistsArgs verifies the origin ref quietly', () => {
+		expect(remoteBranchExistsArgs('auto/work')).toEqual([
+			'rev-parse',
+			'--verify',
+			'--quiet',
+			'refs/remotes/origin/auto/work',
+		])
+	})
+
+	it('mergeBaseArgs merges origin/base without opening an editor', () => {
+		expect(mergeBaseArgs('master')).toEqual([
+			'merge',
+			'--no-edit',
+			'origin/master',
+		])
+	})
+
+	it('mergeAbortArgs aborts an in-progress merge', () => {
+		expect(mergeAbortArgs()).toEqual(['merge', '--abort'])
 	})
 })

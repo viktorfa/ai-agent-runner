@@ -69,25 +69,26 @@ export function openSink(logFile: string): {
 	}
 }
 
-/** True if the Backlog board still lists a To Do task the agent could pick up. */
-async function hasReadyWork(cwd: string): Promise<boolean> {
+/** Count the To Do tasks on the Backlog board (the agent's ready work). */
+async function readyCount(cwd: string): Promise<number> {
 	const { stdout } = await exec(
 		'pnpm',
 		['exec', 'backlog', 'task', 'list', '--plain'],
 		cwd,
 		{ quiet: true },
 	)
-	// Scan the "To Do:" section up to the next "<Header>:" line for a task id.
+	// Scan the "To Do:" section up to the next "<Header>:" line, counting task ids.
 	let inTodo = false
+	let count = 0
 	for (const line of stdout.split('\n')) {
 		if (/^To Do:/.test(line)) {
 			inTodo = true
 			continue
 		}
 		if (inTodo && /^\S.*:\s*$/.test(line)) break
-		if (inTodo && /\bTASK-\d+\b/i.test(line)) return true
+		if (inTodo && /\bTASK-\d+\b/i.test(line)) count += 1
 	}
-	return false
+	return count
 }
 
 /** Real IO for `runLoop`: read the prompt, spawn the agent, push the branch. */
@@ -120,7 +121,7 @@ export function makeDeps(
 			return code === 0
 		},
 
-		hasReadyWork: () => hasReadyWork(cwd),
+		readyCount: () => readyCount(cwd),
 
 		log: (line) => {
 			process.stderr.write(`${line}\n`)

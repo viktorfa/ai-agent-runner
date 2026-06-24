@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DRAIN_SAFETY_CAP, type RunDeps, runLoop } from './run'
+import {
+	DRAIN_SAFETY_CAP,
+	DRAIN_STALL_LIMIT,
+	type RunDeps,
+	runLoop,
+} from './run'
 import type { RunOptions } from './types'
 
 const COMPLETED = '{"type":"turn.completed"}'
@@ -11,7 +16,7 @@ const baseOpts: RunOptions = {
 	workspace: '/repo',
 }
 
-function makeDeps(stdout: string, hasReadyWork = vi.fn(async () => false)) {
+function makeDeps(stdout: string, readyCount = vi.fn(async () => 0)) {
 	const prompts: string[] = []
 	const spawnAgent = vi.fn(
 		async (_bin: string, _argv: string[], prompt: string) => {
@@ -24,10 +29,10 @@ function makeDeps(stdout: string, hasReadyWork = vi.fn(async () => false)) {
 		readPrompt: async () => 'BASE PROMPT',
 		spawnAgent,
 		push,
-		hasReadyWork,
+		readyCount,
 		log: () => {},
 	}
-	return { deps, spawnAgent, push, prompts, hasReadyWork }
+	return { deps, spawnAgent, push, prompts, readyCount }
 }
 
 describe('runLoop', () => {
@@ -64,13 +69,15 @@ describe('runLoop', () => {
 
 	describe('drain', () => {
 		it('runs until the board has no ready work', async () => {
-			// ready, ready, then empty -> exactly two iterations
-			const hasReadyWork = vi
-				.fn<() => Promise<boolean>>()
-				.mockResolvedValueOnce(true)
-				.mockResolvedValueOnce(true)
-				.mockResolvedValue(false)
-			const { deps, spawnAgent, push } = makeDeps(COMPLETED, hasReadyWork)
+			// before/after counts per iteration: [2,1] then [1,0], then before=0 -> stop
+			const readyCount = vi
+				.fn<() => Promise<number>>()
+				.mockResolvedValueOnce(2)
+				.mockResolvedValueOnce(1)
+				.mockResolvedValueOnce(1)
+				.mockResolvedValueOnce(0)
+				.mockResolvedValue(0)
+			const { deps, spawnAgent, push } = makeDeps(COMPLETED, readyCount)
 			const outcomes = await runLoop({ ...baseOpts, drain: true }, deps)
 			expect(outcomes).toHaveLength(2)
 			expect(spawnAgent).toHaveBeenCalledTimes(2)
@@ -84,10 +91,23 @@ describe('runLoop', () => {
 			expect(spawnAgent).not.toHaveBeenCalled()
 		})
 
-		it('stops at the safety cap when work never clears', async () => {
+		it('stops after DRAIN_STALL_LIMIT iterations that clear no task', async () => {
+			// count never drops -> every iteration is a no-progress stall
 			const { deps, spawnAgent } = makeDeps(
 				COMPLETED,
-				vi.fn(async () => true),
+				vi.fn(async () => 3),
+			)
+			const outcomes = await runLoop({ ...baseOpts, drain: true }, deps)
+			expect(outcomes).toHaveLength(DRAIN_STALL_LIMIT)
+			expect(spawnAgent).toHaveBeenCalledTimes(DRAIN_STALL_LIMIT)
+		})
+
+		it('stops at the safety cap under steady progress', async () => {
+			// strictly decreasing but never reaching 0 within the cap
+			let n = 1000
+			const { deps, spawnAgent } = makeDeps(
+				COMPLETED,
+				vi.fn(async () => n--),
 			)
 			const outcomes = await runLoop({ ...baseOpts, drain: true }, deps)
 			expect(outcomes).toHaveLength(DRAIN_SAFETY_CAP)
@@ -97,7 +117,7 @@ describe('runLoop', () => {
 		it('stops on auth failure mid-drain', async () => {
 			const { deps, push } = makeDeps(
 				'{"error":"authentication_failed"}',
-				vi.fn(async () => true),
+				vi.fn(async () => 3),
 			)
 			const outcomes = await runLoop(
 				{ ...baseOpts, assistant: 'claude', drain: true },
