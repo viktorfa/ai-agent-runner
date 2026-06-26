@@ -7,8 +7,8 @@ describe('resolveConfig', () => {
 	})
 
 	it('overrides only the provided fields', () => {
-		const c = resolveConfig({ image: 'custom-img', baseBranch: 'main' })
-		expect(c.image).toBe('custom-img')
+		const c = resolveConfig({ assistant: 'codex', baseBranch: 'main' })
+		expect(c.assistant).toBe('codex')
 		expect(c.baseBranch).toBe('main')
 		expect(c.workBranch).toBe('auto/work')
 	})

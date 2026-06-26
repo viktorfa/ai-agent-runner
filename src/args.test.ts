@@ -7,7 +7,6 @@ describe('parseArgs', () => {
 		const a = parseArgs([])
 		expect(a.assistant).toBeUndefined()
 		expect(a.role).toBeUndefined()
-		expect(a.backend).toBe('docker')
 		expect(a.iterations).toBe(1)
 		expect(a.workspace).toBe('.')
 		expect(a.drain).toBe(false)
@@ -15,14 +14,12 @@ describe('parseArgs', () => {
 		expect(a.task).toBeUndefined()
 	})
 
-	it('parses a full host run', () => {
+	it('parses a full run', () => {
 		const a = parseArgs([
 			'--assistant',
 			'codex',
 			'--loop',
 			'dev',
-			'--backend',
-			'host',
 			'--proxy',
 			'http://127.0.0.1:3128',
 			'--task',
@@ -34,7 +31,6 @@ describe('parseArgs', () => {
 			'--no-push',
 		])
 		expect(a.assistant).toBe('codex')
-		expect(a.backend).toBe('host')
 		expect(a.proxy).toBe('http://127.0.0.1:3128')
 		expect(a.task).toBe('TASK-12')
 		expect(a.iterations).toBe(2)

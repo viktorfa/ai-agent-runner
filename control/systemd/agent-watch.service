@@ -1,18 +1,20 @@
 # systemd --user unit for the agent watcher. Runs as VIKTOR.
 #
+# Set ExecStart to wherever agent-runner is deployed and serves every repo in the
+# registry. Until the runner is extracted to its own repo it lives inside a repo
+# clone, e.g. /home/agent/repos/<repo>/agent-runner/bin/watch; after extraction
+# point it at the standalone clone, e.g. /home/agent/agent-runner/bin/watch.
+#
 # Install (on the executor, as viktor):
 #   loginctl enable-linger "$USER"        # keep it running when logged out (overnight!)
 #   mkdir -p ~/.config/systemd/user
-#   cp /home/agent/repos/plantegner/agent-runner/control/systemd/agent-watch.service \
-#      ~/.config/systemd/user/
+#   cp <agent-runner>/control/systemd/agent-watch.service ~/.config/systemd/user/
+#   # edit ExecStart below to match your deployment path, then:
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now agent-watch.service
 #
 # Logs:  journalctl --user -u agent-watch -f
 # Stop:  systemctl --user stop agent-watch     (or `touch ~/.config/agent-runner/PAUSED`)
-#
-# ExecStart points at the watcher in floorplanner's clone (where the runner lives
-# until it's extracted); it serves every repo in the registry, not just that one.
 
 [Unit]
 Description=Agent runner watcher — drains repo boards onto auto/work
@@ -20,7 +22,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/home/agent/repos/plantegner/agent-runner/bin/watch
+ExecStart=/home/agent/agent-runner/bin/watch
 Environment=WATCH_INTERVAL=120
 Restart=always
 RestartSec=10

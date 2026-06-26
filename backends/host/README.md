@@ -103,7 +103,7 @@ git checkout -b auto/work
 
 # Route the agent's git through Squid. REQUIRED for any manual git (fetch/pull/push)
 # after lockdown — the interactive shell has no HTTPS_PROXY, so direct git is dropped
-# by nftables. (The loop itself is fine; run_host_backend exports the proxy env.)
+# by nftables. (Runs via dispatch are fine — the CLI sets the proxy env from --proxy.)
 git config --global http.proxy  http://127.0.0.1:3128
 git config --global https.proxy http://127.0.0.1:3128
 

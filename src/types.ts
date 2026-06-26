@@ -1,7 +1,6 @@
 /** Core domain types for the agent runner. */
 
 export type Assistant = 'claude' | 'codex'
-export type Backend = 'docker' | 'host'
 export type LoopRole = 'dev' | 'qa'
 
 /** Everything one agent session (`run`) needs to know. */

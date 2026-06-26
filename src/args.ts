@@ -1,16 +1,15 @@
 import type { AgentConfig } from './config'
-import type { Assistant, Backend, LoopRole, RunOptions } from './types'
+import type { Assistant, LoopRole, RunOptions } from './types'
 
 /**
  * Parsed CLI flags. `assistant`/`model`/`effort`/`role` are optional one-off
  * overrides — when absent they fall back to the repo's `.agent/config.json`
- * (see `resolveRunOptions`). `backend`/`proxy` are machine concerns the launcher
- * (dispatch) supplies.
+ * (see `resolveRunOptions`). `proxy` is a machine concern the launcher (dispatch)
+ * supplies.
  */
 export interface CliArgs {
 	assistant?: Assistant
 	role?: LoopRole
-	backend: Backend
 	iterations: number
 	workspace: string
 	task?: string
@@ -24,13 +23,11 @@ export interface CliArgs {
 }
 
 const ASSISTANTS = new Set<string>(['claude', 'codex'])
-const BACKENDS = new Set<string>(['docker', 'host'])
 const ROLES = new Set<string>(['dev', 'qa'])
 
 export function parseArgs(argv: string[]): CliArgs {
 	let assistant: Assistant | undefined
 	let role: LoopRole | undefined
-	let backend: Backend = 'docker'
 	let iterations = 1
 	let workspace = '.'
 	let task: string | undefined
@@ -60,12 +57,6 @@ export function parseArgs(argv: string[]): CliArgs {
 				const v = value()
 				if (!ROLES.has(v)) throw new Error(`unsupported loop: ${v}`)
 				role = v as LoopRole
-				break
-			}
-			case '--backend': {
-				const v = value()
-				if (!BACKENDS.has(v)) throw new Error(`unsupported backend: ${v}`)
-				backend = v as Backend
 				break
 			}
 			case '--iterations':
@@ -105,7 +96,6 @@ export function parseArgs(argv: string[]): CliArgs {
 	}
 
 	return {
-		backend,
 		iterations,
 		workspace,
 		drain,

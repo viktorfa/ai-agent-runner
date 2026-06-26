@@ -10,6 +10,5 @@
 # effort) lives in each repo's .agent/config.json (versioned with the code); role
 # is per-dispatch and defaults to dev (`dispatch <repo> --loop qa` to override).
 
-BACKEND="host"                     # host (per-user uid + nftables + Squid) | docker
 BASE_BRANCH="master"               # used by dispatch to refresh the runner code
-PROXY="http://127.0.0.1:3128"      # host backend egress proxy; leave empty for docker
+PROXY="http://127.0.0.1:3128"      # the egress proxy the agent uid is locked to

@@ -2,8 +2,8 @@
 # Control-plane dispatch — run as VIKTOR (the trusted operator), never as an agent.
 #
 #   dispatch <repo> [orchestrate options...]
-#   dispatch floorplanner --drain --force
-#   dispatch floorplanner --task TASK-15
+#   dispatch <repo> --drain --force
+#   dispatch <repo> --task TASK-15
 #
 # Resolves <repo> from the operator registry (~/.config/agent-runner, override with
 # $AGENT_RUNNER_CONFIG), drops to that repo's Linux user, refreshes the runner code,
@@ -37,7 +37,6 @@ source "$repo_conf"
 
 : "${REPO_PATH:?$repo_conf must set REPO_PATH}"
 : "${REPO_USER:?$repo_conf must set REPO_USER}"
-BACKEND="${BACKEND:-host}"
 BASE_BRANCH="${BASE_BRANCH:-master}"
 PROXY="${PROXY:-}"
 
@@ -45,15 +44,14 @@ runner="$REPO_PATH/agent-runner/bin/agent-runner"
 
 # Build the remote command with printf %q so every interpolated value is
 # shell-safe — no string-quoting guesswork (that bug class is why we left the old
-# runner). dispatch supplies only the machine binding (backend, workspace, proxy);
+# runner). dispatch supplies only the machine binding (workspace, proxy);
 # assistant/model/effort come from the repo's .agent/config.json, and role defaults
 # to dev (pass `--loop qa` as an extra arg to override). Pre-sync the base branch so
 # the runner CODE in the tree is current before we invoke it (goes away on
 # extraction); orchestrate then manages auto/work on its own.
 remote=$(printf 'cd %q && git fetch origin %q && git checkout -B %q %q' \
 	"$REPO_PATH" "$BASE_BRANCH" "$BASE_BRANCH" "origin/$BASE_BRANCH")
-remote+=$(printf ' && %q orchestrate --backend %q --workspace %q' \
-	"$runner" "$BACKEND" "$REPO_PATH")
+remote+=$(printf ' && %q orchestrate --workspace %q' "$runner" "$REPO_PATH")
 [ -n "$PROXY" ] && remote+=$(printf ' --proxy %q' "$PROXY")
 for arg in "$@"; do remote+=$(printf ' %q' "$arg"); done
 
@@ -63,7 +61,7 @@ lockdir="$CONFIG_DIR/locks"
 mkdir -p "$lockdir"
 lock="$lockdir/$repo.lock"
 
-echo "dispatch: $repo -> user=$REPO_USER backend=$BACKEND" >&2
+echo "dispatch: $repo -> user=$REPO_USER" >&2
 # `bash -lic` (login + interactive) so the agent's real toolchain loads: node/pnpm
 # (fnm) and the agent CLIs (pnpm global bin) live in .bashrc, which only runs for
 # interactive shells — a plain `bash -c` has none of them. This keeps the runner

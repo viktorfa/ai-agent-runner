@@ -38,8 +38,7 @@ export const codexAdapter: AgentAdapter = {
 			'exec',
 			'--json',
 			'--dangerously-bypass-approvals-and-sandbox',
-			// Use the real workspace, NOT a hardcoded /workspace — that path only
-			// exists in the Docker backend and breaks the host backend.
+			// Run codex in the actual workspace, never a hardcoded path.
 			'-C',
 			opts.workspace,
 		]

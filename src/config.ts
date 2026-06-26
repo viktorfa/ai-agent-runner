@@ -2,10 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Assistant, LoopRole } from './types'
 
-/** Per-repo runner config (the typed successor to .agent/config.sh). */
+/** Per-repo runner config, loaded from the repo's .agent/config.json. */
 export interface AgentConfig {
-	/** Docker image for the docker backend. */
-	image: string
 	/**
 	 * How to drive the agent for this repo. These live here (versioned, portable)
 	 * rather than in the operator registry: the model id is assistant-specific, so
@@ -37,7 +35,6 @@ export interface AgentConfig {
 
 export function defaultConfig(): AgentConfig {
 	return {
-		image: 'room-planner-claude',
 		assistant: 'claude',
 		baseBranch: 'master',
 		workBranch: 'auto/work',
@@ -59,7 +56,6 @@ export function defaultConfig(): AgentConfig {
 export function resolveConfig(partial: Partial<AgentConfig>): AgentConfig {
 	const d = defaultConfig()
 	return {
-		image: partial.image ?? d.image,
 		assistant: partial.assistant ?? d.assistant,
 		baseBranch: partial.baseBranch ?? d.baseBranch,
 		workBranch: partial.workBranch ?? d.workBranch,

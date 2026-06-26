@@ -24,7 +24,7 @@ cp /home/agent/repos/plantegner/agent-runner/control/repos/floorplanner.conf.exa
 
 `defaults.conf` sets fleet-wide values; each `repos/<name>.conf` overrides them and
 must set `REPO_PATH` + `REPO_USER`. The registry holds only the **machine binding**:
-`REPO_PATH`, `REPO_USER`, `BACKEND`, `BASE_BRANCH`, `PROXY`. **How to drive the agent
+`REPO_PATH`, `REPO_USER`, `BASE_BRANCH`, `PROXY`. **How to drive the agent
 — `assistant`, `model`, `effort` — lives in each repo's `.agent/config.json`**
 (versioned with the code; a model id is assistant-specific, so the three travel
 together). **Role** is per-dispatch and defaults to `dev` (`dispatch <repo> --loop

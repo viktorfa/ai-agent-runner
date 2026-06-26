@@ -6,7 +6,7 @@ const baseOpts: RunOptions = {
 	assistant: 'codex',
 	role: 'dev',
 	iterations: 1,
-	workspace: '/home/agent/repos/plantegner',
+	workspace: '/home/agent/repos/sample',
 }
 
 describe('codexAdapter.buildArgv', () => {
@@ -14,7 +14,7 @@ describe('codexAdapter.buildArgv', () => {
 		const argv = codexAdapter.buildArgv(baseOpts)
 		const i = argv.indexOf('-C')
 		expect(i).toBeGreaterThanOrEqual(0)
-		expect(argv[i + 1]).toBe('/home/agent/repos/plantegner')
+		expect(argv[i + 1]).toBe('/home/agent/repos/sample')
 		expect(argv).not.toContain('/workspace')
 	})
 
