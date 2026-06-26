@@ -23,7 +23,6 @@ export interface CliArgs {
 }
 
 const ASSISTANTS = new Set<string>(['claude', 'codex'])
-const ROLES = new Set<string>(['dev', 'qa'])
 
 export function parseArgs(argv: string[]): CliArgs {
 	let assistant: Assistant | undefined
@@ -53,12 +52,10 @@ export function parseArgs(argv: string[]): CliArgs {
 				assistant = v as Assistant
 				break
 			}
-			case '--loop': {
-				const v = value()
-				if (!ROLES.has(v)) throw new Error(`unsupported loop: ${v}`)
-				role = v as LoopRole
+			case '--loop':
+				// Any role the repo has a prompt for (validated in resolveRunOptions).
+				role = value()
 				break
-			}
 			case '--iterations':
 				iterations = Number.parseInt(value(), 10)
 				break
@@ -121,9 +118,16 @@ export function resolveRunOptions(
 ): RunOptions {
 	const model = args.model ?? config.model
 	const effort = args.effort ?? config.effort
+	const role = args.role ?? 'dev'
+	if (!config.prompts[role]) {
+		throw new Error(
+			`no prompt for role '${role}' — add it to .agent/config.json "prompts" ` +
+				`(have: ${Object.keys(config.prompts).join(', ')})`,
+		)
+	}
 	return {
 		assistant: args.assistant ?? config.assistant,
-		role: args.role ?? 'dev',
+		role,
 		iterations: args.iterations,
 		workspace: args.workspace,
 		drain: args.drain,

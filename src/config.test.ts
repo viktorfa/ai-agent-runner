@@ -13,10 +13,11 @@ describe('resolveConfig', () => {
 		expect(c.workBranch).toBe('auto/work')
 	})
 
-	it('merges nested prompts/hooks without dropping siblings', () => {
-		const c = resolveConfig({ prompts: { dev: 'x.md' } as never })
+	it('merges prompts (incl. repo-defined roles) without dropping siblings', () => {
+		const c = resolveConfig({ prompts: { dev: 'x.md', steward: 's.md' } })
 		expect(c.prompts.dev).toBe('x.md')
 		expect(c.prompts.qa).toBe('.agent/prompts/qa-loop.md')
+		expect(c.prompts.steward).toBe('s.md') // repo-defined role
 	})
 
 	it('defaults workBranchMode to reset and lets it be overridden', () => {

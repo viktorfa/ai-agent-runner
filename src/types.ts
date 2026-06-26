@@ -1,7 +1,12 @@
 /** Core domain types for the agent runner. */
 
 export type Assistant = 'claude' | 'codex'
-export type LoopRole = 'dev' | 'qa'
+/**
+ * A loop role. Not a fixed enum — each repo defines its own roles via the prompts
+ * it ships in `.agent/config.json` (`dev` and `qa` are the built-in defaults; a
+ * repo can add e.g. `steward`). A role is valid iff that repo has a prompt for it.
+ */
+export type LoopRole = string
 
 /** Everything one agent session (`run`) needs to know. */
 export interface RunOptions {

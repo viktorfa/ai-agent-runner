@@ -92,4 +92,19 @@ describe('resolveRunOptions', () => {
 		expect(o.model).toBeUndefined()
 		expect(o.effort).toBeUndefined()
 	})
+
+	it('accepts any role the repo defines a prompt for', () => {
+		const withSteward = {
+			...config,
+			prompts: { ...config.prompts, steward: '.agent/prompts/steward.md' },
+		}
+		const o = resolveRunOptions(parseArgs(['--loop', 'steward']), withSteward)
+		expect(o.role).toBe('steward')
+	})
+
+	it('throws for a role with no prompt in the repo config', () => {
+		expect(() =>
+			resolveRunOptions(parseArgs(['--loop', 'steward']), config),
+		).toThrow(/no prompt for role 'steward'/)
+	})
 })
