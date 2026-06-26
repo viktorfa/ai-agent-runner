@@ -54,6 +54,15 @@ runner="$(cd "$(dirname "$0")" && pwd)/agent-runner"
 # idle processes). Set here in the runner so it travels to any executor — the
 # agent's .bashrc can stop sourcing partway, so an rc-file export is unreliable.
 remote='export DBUS_SESSION_BUS_ADDRESS=disabled: NO_AT_BRIDGE=1; '
+# Let corepack reach the npm registry through the egress proxy so it can download
+# and run each repo's pinned pnpm (the `packageManager` field) on demand. corepack
+# ignores *_PROXY unless NODE_USE_ENV_PROXY=1; we set both casings since some setups
+# only honor the lowercase ones, and exclude loopback so the proxy isn't proxied.
+# Without this, an uncached pin fails on the egress drop and the loop can't run pnpm.
+if [ -n "$PROXY" ]; then
+	remote+=$(printf 'export NODE_USE_ENV_PROXY=1 HTTPS_PROXY=%q https_proxy=%q NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost; ' \
+		"$PROXY" "$PROXY")
+fi
 remote+=$(printf 'cd %q && %q orchestrate --workspace %q' \
 	"$REPO_PATH" "$runner" "$REPO_PATH")
 [ -n "$PROXY" ] && remote+=$(printf ' --proxy %q' "$PROXY")
