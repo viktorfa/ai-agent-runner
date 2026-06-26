@@ -1,11 +1,10 @@
-# systemd --user unit for the agent watcher. Runs as VIKTOR.
+# systemd --user unit for the agent watcher. Runs as the OPERATOR user.
 #
-# Set ExecStart to wherever agent-runner is deployed and serves every repo in the
-# registry. Until the runner is extracted to its own repo it lives inside a repo
-# clone, e.g. /home/agent/repos/<repo>/agent-runner/bin/watch; after extraction
-# point it at the standalone clone, e.g. /home/agent/agent-runner/bin/watch.
+# Set ExecStart to wherever agent-runner is deployed; it serves every repo in the
+# registry. The default below assumes the runner is cloned at
+# /home/agent/agent-runner.
 #
-# Install (on the executor, as viktor):
+# Install (on the executor, as the operator):
 #   loginctl enable-linger "$USER"        # keep it running when logged out (overnight!)
 #   mkdir -p ~/.config/systemd/user
 #   cp <agent-runner>/control/systemd/agent-watch.service ~/.config/systemd/user/

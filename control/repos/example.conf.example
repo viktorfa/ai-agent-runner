@@ -1,0 +1,15 @@
+# Per-repo registry entry — copy to ~/.config/agent-runner/repos/<repo>.conf
+# and edit. Inherits everything from defaults.conf unless overridden here.
+#
+# SECRETS DO NOT BELONG HERE. PATs live as 0600 files owned by REPO_USER; this
+# file only names the user.
+
+REPO_PATH="/home/agent/repos/<repo>"   # the clone the agent operates on
+REPO_USER="agent"                       # Linux user dispatch drops to (one-per-repo later)
+
+# Inherited from defaults.conf unless set: PROXY.
+# assistant / model / effort live in this repo's .agent/config.json, not here.
+
+# Used by provisioning (future), not by dispatch yet:
+PERMISSION_CLASS="A"                    # A = sandbox/local; B = production
+EXTRA_ALLOWED_DOMAINS=""                # space-separated; composed onto the baseline allowlist

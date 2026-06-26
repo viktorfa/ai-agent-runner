@@ -1,14 +1,15 @@
-# Control plane (v1)
+# Control plane
 
-The **dispatch** tool + the operator **registry**. Runs as `viktor` (the trusted
-operator) and drops to each repo's Linux user to run a jailed agent. This is the
-watcher's dispatch primitive — minus the polling daemon (added later).
+The **dispatch** tool, the operator **registry**, and the **watcher**. Runs as the
+**operator** user (trusted; has sudo) and drops to each repo's Linux user to run a
+jailed agent.
+
+Paths below assume the runner is cloned at `~agent/agent-runner` (`/home/agent/agent-runner`).
 
 ## Why shell, not the TS runner
-`viktor` has no Node toolchain on the executor (only the agent users do). The
-dispatch is therefore plain bash with a shell-sourceable registry — nothing for
-the operator to install. When the control plane graduates to its own clone with
-its own runtime, the registry can move to a structured format.
+The operator has no Node toolchain on the executor (only the agent users do). The
+dispatch is therefore plain bash with a shell-sourceable registry — nothing for the
+operator to install.
 
 ## Registry (operator config — NOT version-controlled with a product repo)
 Live config lives in `~/.config/agent-runner/` on the executor (override with
@@ -16,58 +17,55 @@ Live config lives in `~/.config/agent-runner/` on the executor (override with
 
 ```bash
 mkdir -p ~/.config/agent-runner/repos
-cp /home/agent/repos/plantegner/agent-runner/control/defaults.conf.example \
-   ~/.config/agent-runner/defaults.conf
-cp /home/agent/repos/plantegner/agent-runner/control/repos/floorplanner.conf.example \
-   ~/.config/agent-runner/repos/floorplanner.conf
+cp ~agent/agent-runner/control/defaults.conf.example ~/.config/agent-runner/defaults.conf
+cp ~agent/agent-runner/control/repos/example.conf.example ~/.config/agent-runner/repos/<repo>.conf
 ```
 
 `defaults.conf` sets fleet-wide values; each `repos/<name>.conf` overrides them and
 must set `REPO_PATH` + `REPO_USER`. The registry holds only the **machine binding**:
-`REPO_PATH`, `REPO_USER`, `BASE_BRANCH`, `PROXY`. **How to drive the agent
-— `assistant`, `model`, `effort` — lives in each repo's `.agent/config.json`**
-(versioned with the code; a model id is assistant-specific, so the three travel
-together). **Role** is per-dispatch and defaults to `dev` (`dispatch <repo> --loop
-qa` to override). **Secrets never go here** (PATs are `0600` files owned by the repo
-user).
+`REPO_PATH`, `REPO_USER`, `PROXY`. **How to drive the agent — `assistant`, `model`,
+`effort` — lives in each repo's `.agent/config.json`** (versioned with the code; a
+model id is assistant-specific, so the three travel together). **Role** is
+per-dispatch and defaults to `dev` (`dispatch <repo> --loop qa` to override).
+**Secrets never go here** (PATs are `0600` files owned by the repo user).
 
 ## Passwordless dispatch (sudoers)
-`dispatch` drops to the repo user with `sudo -iu`. Without a rule it prompts for
-viktor's password once per run; the watcher needs it silent. viktor already has
-root, so this grants **no new privilege** — it only removes the prompt:
+`dispatch` drops to the repo user with `sudo -iu`. Without a rule it prompts for the
+operator's password once per run; the watcher needs it silent. The operator already
+has root, so this grants **no new privilege** — it only removes the prompt (replace
+`<operator>`/`agent` with your users):
 
 ```bash
-echo 'viktor ALL=(agent) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/agent-runner-dispatch
+echo '<operator> ALL=(agent) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/agent-runner-dispatch
 sudo chmod 0440 /etc/sudoers.d/agent-runner-dispatch
 sudo visudo -cf /etc/sudoers.d/agent-runner-dispatch     # validate before trusting it
 ```
 
-(Per-repo users later → one `viktor ALL=(agent-<repo>) NOPASSWD: ALL` line each.)
+(Per-repo users later → one `<operator> ALL=(agent-<repo>) NOPASSWD: ALL` line each.)
 
 ## Use
 ```bash
-/home/agent/repos/plantegner/agent-runner/bin/dispatch floorplanner --drain --force
-/home/agent/repos/plantegner/agent-runner/bin/dispatch floorplanner --task TASK-15
+~agent/agent-runner/bin/dispatch <repo> --drain
+~agent/agent-runner/bin/dispatch <repo> --task TASK-15
+~agent/agent-runner/bin/dispatch <repo> --loop qa        # a qa pass instead of dev
 ```
 
-First time only: the agent clone must already contain `bin/dispatch` (sync it once
-with `sudo -iu agent git -C /home/agent/repos/plantegner fetch && \
-git -C /home/agent/repos/plantegner reset --hard origin/master`). After that the
-dispatch refreshes the runner code on every run.
+The runner is its own clone — update it with `cd ~agent/agent-runner && git pull`
+(no in-product bootstrap; `orchestrate` owns each product repo's git).
 
 ## Watcher (push and walk away)
-The watcher (`bin/watch`) runs as viktor and polls the registry, draining each
-repo's board through `dispatch` — so you just push tickets, no SSH, no manual
-dispatch. It's stateless: the board is the queue, dispatch's `flock` is the
-per-repo mutex (a poll while a run is active returns 75 and is skipped), and
-`orchestrate` early-exits when nothing's ready (idle polls are cheap).
+`bin/watch` (run as the operator) polls the registry and drains each repo's board
+through `dispatch` — so you just push tickets, no SSH, no manual dispatch. It's
+stateless: the board is the queue, dispatch's `flock` is the per-repo mutex (a poll
+while a run is active returns 75 and is skipped), and `orchestrate` early-exits when
+nothing's ready (idle polls are cheap).
 
-Install the systemd `--user` unit (as viktor on the executor):
+Install the systemd `--user` unit (as the operator on the executor):
 ```bash
 loginctl enable-linger "$USER"        # keep it running while you're logged out (overnight!)
 mkdir -p ~/.config/systemd/user
-cp /home/agent/repos/plantegner/agent-runner/control/systemd/agent-watch.service \
-   ~/.config/systemd/user/
+cp ~agent/agent-runner/control/systemd/agent-watch.service ~/.config/systemd/user/
+# (the unit's ExecStart already points at /home/agent/agent-runner/bin/watch)
 systemctl --user daemon-reload
 systemctl --user enable --now agent-watch.service
 ```
@@ -78,7 +76,6 @@ systemctl --user enable --now agent-watch.service
 - **Stop:** `systemctl --user stop agent-watch`
 - **Cadence:** `WATCH_INTERVAL` (seconds, default 120) in the unit's `Environment=`.
 
-With floorplanner in `accumulate` mode the watcher just keeps `auto/work` drained;
-you merge `auto/work → master` periodically. To update the watcher/dispatch code,
-`systemctl --user restart agent-watch` after the clone has the new commit (the
-running loop is parsed in memory, so a reset mid-run won't disturb it).
+With a repo in `accumulate` mode the watcher just keeps `auto/work` drained; you
+merge `auto/work → base` periodically. To update the runner code:
+`cd ~agent/agent-runner && git pull && systemctl --user restart agent-watch`.

@@ -2,7 +2,7 @@
 #
 # OPERATOR config: copy to ~/.config/agent-runner/defaults.conf on the executor.
 # This is NOT version-controlled with any product repo. Plain shell so the
-# viktor-side dispatch needs no toolchain (viktor has no Node on the executor).
+# operator-side dispatch needs no toolchain (the operator has no Node on the executor).
 #
 # A per-repo repos/<name>.conf overrides any of these.
 #

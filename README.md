@@ -26,7 +26,7 @@ src/
   cli.ts              entry: run | orchestrate
 bin/
   agent-runner        host entry: runs cli.ts via tsx directly
-  dispatch            control plane: run as viktor, drops to a repo's user (flock'd)
+  dispatch            control plane: run as the operator, drops to a repo's user (flock'd)
   watch               control plane: poll loop (systemd --user) — drains each repo
 control/              operator registry templates + systemd unit (see control/README.md)
 ```
@@ -69,10 +69,10 @@ machine binding (path/user/proxy); `role` is per-dispatch (default `dev`).
 
 **Work-branch mode** (`.agent/config.json` → `workBranchMode`): `reset` (clean diff
 per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge base in,
-stack tasks — merge to base periodically). floorplanner uses `accumulate`.
+stack tasks — merge to base periodically), chosen per repo.
 
 **Operation** is normally via the control plane, not these commands directly:
-`bin/dispatch <repo> [opts]` (run as viktor → drops to the repo's user) and
+`bin/dispatch <repo> [opts]` (run as the operator → drops to the repo's user) and
 `bin/watch` (the systemd poll loop). See `control/README.md`.
 
 See `docs/AGENT_DEV_SYSTEM.md` for the full system (isolation, security, the
