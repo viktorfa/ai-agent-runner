@@ -6,8 +6,9 @@ the result, commit + push, and keep a transcript. Plus the **control plane** tha
 triggers runs as the trusted operator (`bin/dispatch`).
 
 It is **self-contained** — its own `tsconfig.json`, `biome.json`, dev toolchain,
-and tests — so it can be lifted into its own repository later. For now it lives
-in this monorepo so we can gain practical experience before splitting it out.
+and tests. Extracted from the `room_planner` monorepo (where it was incubated) into
+this standalone repo; it operates on any repo via `--workspace` + that repo's
+`.agent/` config, and runs nothing repo-specific.
 
 ## Layout
 ```

@@ -1,5 +1,5 @@
 {
-	"name": "@room-planner/agent-runner",
+	"name": "agent-runner",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",

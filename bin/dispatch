@@ -6,9 +6,9 @@
 #   dispatch <repo> --task TASK-15
 #
 # Resolves <repo> from the operator registry (~/.config/agent-runner, override with
-# $AGENT_RUNNER_CONFIG), drops to that repo's Linux user, refreshes the runner code,
-# then hands off to `agent-runner orchestrate` — which fetches, runs the unmerged
-# guard, and resets auto/work itself. You never touch branches by hand.
+# $AGENT_RUNNER_CONFIG), drops to that repo's Linux user, and hands off to
+# `agent-runner orchestrate` — which fetches, prepares the work branch, and runs
+# the loop itself. You never touch branches by hand.
 #
 # Passwordless once the sudoers rule is in place (see control/README.md); until
 # then sudo prompts for viktor's password once per dispatch.
@@ -37,21 +37,19 @@ source "$repo_conf"
 
 : "${REPO_PATH:?$repo_conf must set REPO_PATH}"
 : "${REPO_USER:?$repo_conf must set REPO_USER}"
-BASE_BRANCH="${BASE_BRANCH:-master}"
 PROXY="${PROXY:-}"
 
-runner="$REPO_PATH/agent-runner/bin/agent-runner"
+# The runner is THIS dispatch's sibling — its own standalone clone, not a copy
+# inside the product repo. Update it with `git pull` in the runner clone; the
+# product workspace's git is `orchestrate`'s job, so there is no pre-sync here.
+runner="$(cd "$(dirname "$0")" && pwd)/agent-runner"
 
 # Build the remote command with printf %q so every interpolated value is
-# shell-safe — no string-quoting guesswork (that bug class is why we left the old
-# runner). dispatch supplies only the machine binding (workspace, proxy);
-# assistant/model/effort come from the repo's .agent/config.json, and role defaults
-# to dev (pass `--loop qa` as an extra arg to override). Pre-sync the base branch so
-# the runner CODE in the tree is current before we invoke it (goes away on
-# extraction); orchestrate then manages auto/work on its own.
-remote=$(printf 'cd %q && git fetch origin %q && git checkout -B %q %q' \
-	"$REPO_PATH" "$BASE_BRANCH" "$BASE_BRANCH" "origin/$BASE_BRANCH")
-remote+=$(printf ' && %q orchestrate --workspace %q' "$runner" "$REPO_PATH")
+# shell-safe — no string-quoting guesswork. dispatch supplies only the machine
+# binding (workspace, proxy); assistant/model/effort come from the repo's
+# .agent/config.json, and role defaults to dev (pass `--loop qa` to override).
+remote=$(printf 'cd %q && %q orchestrate --workspace %q' \
+	"$REPO_PATH" "$runner" "$REPO_PATH")
 [ -n "$PROXY" ] && remote+=$(printf ' --proxy %q' "$PROXY")
 for arg in "$@"; do remote+=$(printf ' %q' "$arg"); done
 
