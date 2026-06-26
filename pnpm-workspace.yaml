@@ -1,0 +1,10 @@
+# Not a workspace — this file is just the home pnpm 11 uses for these settings.
+
+# esbuild ships a native binary via a build script; tsx needs it. pnpm 11 ignores
+# build scripts unless approved here.
+allowBuilds:
+  esbuild: true
+
+# Supply-chain guard: don't install releases younger than 3 days (matches the
+# agent runner's threat model — npm is an exfil/compromise surface).
+minimumReleaseAge: 4320
