@@ -48,7 +48,13 @@ runner="$(cd "$(dirname "$0")" && pwd)/agent-runner"
 # shell-safe — no string-quoting guesswork. dispatch supplies only the machine
 # binding (workspace, proxy); assistant/model/effort come from the repo's
 # .agent/config.json, and role defaults to dev (pass `--loop qa` to override).
-remote=$(printf 'cd %q && %q orchestrate --workspace %q' \
+# Headless executor: no GUI session. Pin D-Bus to a dead address and disable the
+# AT-SPI bridge so chromium / libsecret inside a drain don't autolaunch a session
+# bus + gnome-keyring daemon that nothing ever reaps (a slow, unbounded leak of
+# idle processes). Set here in the runner so it travels to any executor — the
+# agent's .bashrc can stop sourcing partway, so an rc-file export is unreliable.
+remote='export DBUS_SESSION_BUS_ADDRESS=disabled: NO_AT_BRIDGE=1; '
+remote+=$(printf 'cd %q && %q orchestrate --workspace %q' \
 	"$REPO_PATH" "$runner" "$REPO_PATH")
 [ -n "$PROXY" ] && remote+=$(printf ' --proxy %q' "$PROXY")
 for arg in "$@"; do remote+=$(printf ' %q' "$arg"); done
