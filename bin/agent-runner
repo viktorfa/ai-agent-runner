@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 # Entry point for the TypeScript agent runner — runs the CLI via tsx.
 #
-# Usage (from the repo root):
-#   agent-runner/bin/agent-runner <run|orchestrate> [options]
-#
-# orchestrate = fetch + reset the work branch to base + setup + run (the host
-# entry; supersedes run-agent-loop.sh --backend host). run = one session only.
+# Usage:  bin/agent-runner <run|orchestrate> [options]
 set -euo pipefail
 
 RUNNER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-REPO="$(cd "$RUNNER_DIR/.." && pwd)"
-TSX="$REPO/node_modules/.bin/tsx"
+
+# Locate tsx. Standalone: in this repo's node_modules. (A parent node_modules is
+# also checked in case the runner is vendored inside a monorepo that hoists deps.)
+TSX=""
+for cand in \
+	"$RUNNER_DIR/node_modules/.bin/tsx" \
+	"$RUNNER_DIR/../node_modules/.bin/tsx"; do
+	if [ -x "$cand" ]; then
+		TSX="$cand"
+		break
+	fi
+done
 
 # Run tsx directly, NOT via `pnpm exec` — pnpm's pre-flight dep check would try to
 # `pnpm install` first (hitting npm before the CLI sets the egress proxy). The
 # CLI's own setup step installs deps (with the proxy) once it's running.
-if [ ! -x "$TSX" ]; then
-	echo "tsx not found at $TSX — run 'pnpm install' once" \
+if [ -z "$TSX" ]; then
+	echo "tsx not found under $RUNNER_DIR — run 'pnpm install' once" \
 		"(with HTTPS_PROXY=http://127.0.0.1:3128 if locked down)." >&2
 	exit 1
 fi
