@@ -3,7 +3,8 @@
 The typed core that runs headless coding agents (Claude Code, Codex; OpenCode
 later) against a repo: select work, build the per-tool argv, run the loop, parse
 the result, commit + push, and keep a transcript. Plus the **control plane** that
-triggers runs as the trusted operator (`bin/dispatch`).
+runs as the trusted operator — `dispatch` (run now), `enqueue` (queue a one-off), a
+per-repo `watch` loop, and an operator **TUI** (`tui/`).
 
 It is **self-contained** — its own `tsconfig.json`, `biome.json`, dev toolchain,
 and tests. Extracted from the `room_planner` monorepo (where it was incubated) into
@@ -27,8 +28,11 @@ src/
 bin/
   agent-runner        host entry: runs cli.ts via tsx directly
   dispatch            control plane: run as the operator, drops to a repo's user (flock'd)
-  watch               control plane: poll loop (systemd --user) — drains each repo
-control/              operator registry templates + systemd unit (see control/README.md)
+  enqueue             control plane: queue a one-off run; the watcher runs it at the next free slot
+  watch               control plane: poll loop for one repo (or all) — drains the board, runs queued
+                      one-offs, records per-run status; runs as a systemd --user unit
+control/              operator registry templates + systemd units (single + per-repo template); see control/README.md
+tui/                  operator dashboard (Bubble Tea v2, separate Go module); see tui/README.md
 ```
 
 ## Design
@@ -72,28 +76,14 @@ per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge bas
 stack tasks — merge to base periodically), chosen per repo.
 
 **Operation** is normally via the control plane, not these commands directly:
-`bin/dispatch <repo> [opts]` (run as the operator → drops to the repo's user) and
-`bin/watch` (the systemd poll loop). See `control/README.md`.
+`bin/dispatch <repo> [opts]` (run now, drops to the repo's user), `bin/enqueue <repo>
+[opts]` (queue a one-off the watcher picks up at the next free slot), and a per-repo
+`bin/watch` loop as a systemd `--user` unit — see `control/README.md`. The `tui/`
+dashboard gives an at-a-glance fleet view plus the common actions — see `tui/README.md`.
+For the host isolation (per-repo Linux user, nftables egress lock, Squid allowlist)
+see `backends/host/README.md`.
 
-See `docs/AGENT_DEV_SYSTEM.md` for the full system (isolation, security, the
-control plane, the responsibility split).
-
-## Extracting to its own repo
-The decoupling is done (own tsconfig/biome/deps; no repo-specific code). The move:
-1. `biome.json`: flip `"root": false` → `true` (it inherits the monorepo root today).
-2. Remove `agent-runner` from the monorepo's `pnpm-workspace.yaml`, root
-   `biome.json` includes, and root `vitest.config.ts` projects.
-3. `git subtree split --prefix=agent-runner` → push to the new (private) remote.
-4. On the executor, clone it once at a stable path (e.g. `/home/agent/agent-runner`)
-   and point `bin/dispatch`'s `runner=` at it instead of `<workspace>/agent-runner`.
-   Then the `git checkout -B` pre-sync in `dispatch` (which only bootstraps the
-   runner code from inside the product repo) can be dropped — `orchestrate` already
-   manages the product workspace's git, and the runner is updated by `git pull` in
-   its own clone, independent of any product repo.
-5. Point the systemd unit's `ExecStart` at the new `…/agent-runner/bin/watch`.
-
-**Onboarding a host/repo** is provisioning, separate from extraction:
-`backends/host/provision.sh` (parameterized by `AGENT_USER`) creates the user +
-Squid base; the toolchain install, clone, git config, PAT, and agent CLI **login**
-are manual (login + PAT can't be automated). A `provision-repo.sh` that scripts the
-mechanical parts is a future convenience — not needed to extract.
+## Onboarding a host/repo
+`backends/host/provision.sh` (parameterized by `AGENT_USER`) creates the user + Squid
+base; the toolchain install, clone, git config, PAT, and agent CLI **login** are
+manual (login + PAT can't be automated). See `backends/host/README.md`.
