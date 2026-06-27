@@ -408,7 +408,9 @@ func (m model) listView() string {
 		top = m.repoListColumn() + "\n\n" + m.detailColumn()
 	}
 
-	return header + "\n" + top + "\n" + m.activityPanel(activityH-1) + "\n" + footer
+	// Legend sits directly under the list/detail it describes; the activity log is the
+	// bottom panel.
+	return header + "\n" + top + "\n" + footer + "\n" + m.activityPanel(activityH-1)
 }
 
 func tags(r repoStatus) []string {
