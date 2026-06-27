@@ -185,6 +185,73 @@ func activityFeed(repo string, maxLines int) []string {
 	return lines
 }
 
+// --- activity history (heatmap + timeline), from auto/work commits ---
+
+type commitEntry struct {
+	when    time.Time
+	date    string // YYYY-MM-DD (committer-local)
+	subject string
+}
+
+type repoActivity struct {
+	commits []commitEntry // newest first, within the window
+}
+
+// loadRepoActivity reads recent commits on a repo's checked-out work branch (the
+// committer date + subject) via the existing sudo path, read-only — the commits are
+// the record of work that landed. On-demand (when the activity view opens), not on the
+// refresh tick.
+func loadRepoActivity(repoUser, repoPath string, days int) repoActivity {
+	if repoUser == "" || repoPath == "" {
+		return repoActivity{}
+	}
+	out, err := exec.Command("sudo", "-n", "-u", repoUser,
+		"git", "-C", repoPath, "log",
+		"--since="+fmt.Sprintf("%d days ago", days), "-n", "500",
+		"--format=%cI%x09%s").Output()
+	if err != nil {
+		return repoActivity{}
+	}
+	return repoActivity{commits: parseActivityLog(string(out))}
+}
+
+// parseActivityLog turns `git log --format=%cI<TAB>%s` output into commit entries.
+func parseActivityLog(out string) []commitEntry {
+	var commits []commitEntry
+	for _, line := range strings.Split(out, "\n") {
+		iso, subject, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, iso)
+		if err != nil {
+			continue
+		}
+		commits = append(commits, commitEntry{when: t, date: iso[:10], subject: subject})
+	}
+	return commits
+}
+
+type dayCount struct {
+	date  string
+	count int
+}
+
+// heatmap buckets commits into the last `days` calendar days ending at `now` (oldest
+// first), for a GitHub-style contribution row.
+func (a repoActivity) heatmap(days int, now time.Time) []dayCount {
+	byDay := map[string]int{}
+	for _, c := range a.commits {
+		byDay[c.date]++
+	}
+	cells := make([]dayCount, 0, days)
+	for i := days - 1; i >= 0; i-- {
+		d := now.AddDate(0, 0, -i).Format("2006-01-02")
+		cells = append(cells, dayCount{date: d, count: byDay[d]})
+	}
+	return cells
+}
+
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

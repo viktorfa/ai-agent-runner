@@ -51,6 +51,7 @@ rest of the control plane.
 |-----|--------|
 | `↑`/`↓` (`k`/`j`) | move between repos |
 | `enter` / `t` | open the selected repo's live transcript (latest loop log, follows the tail); `esc`/`q` to go back |
+| `a` | open the selected repo's **activity** view — a commits-per-day heatmap + a recent `auto/work` timeline (work that landed); `r` refresh, `esc`/`q` back |
 | `e` | enqueue a one-off run — pick the role (`↑/↓`, from those the repo defines in `.agent/config.json`) and iteration count (`←/→`, default 1); `enter` queues, `esc` cancels. Writes the same queue file as `bin/enqueue` |
 | `p` | toggle the repo's watcher pause flag |
 | `x` | clear the repo's pending one-off queue |

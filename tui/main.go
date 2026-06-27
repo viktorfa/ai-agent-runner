@@ -39,6 +39,12 @@ const (
 	modeList viewMode = iota
 	modeTranscript
 	modeEnqueue
+	modeActivity
+)
+
+const (
+	activityDays      = 28 // heatmap window
+	activityTimelineN = 15 // commits shown in the timeline
 )
 
 const chromeHeight = 4 // header + footer rows reserved around the viewport
@@ -53,8 +59,12 @@ type model struct {
 	vpPath     string
 	roles      []string // role picker choices for the selected repo (modeEnqueue)
 	roleCursor int
-	iterations int      // chosen iteration count in the enqueue picker (default 1)
-	activity   []string // filtered watcher-journal feed (fleet heartbeat)
+	iterations int          // chosen iteration count in the enqueue picker (default 1)
+	activity   []string     // filtered watcher-journal feed (fleet heartbeat)
+	actData    repoActivity // loaded commit history for the activity view (modeActivity)
+	actName    string
+	actUser    string
+	actPath    string
 	width      int
 	height     int
 	message    string
@@ -113,6 +123,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateTranscript(msg)
 		case modeEnqueue:
 			return m.updateEnqueue(msg)
+		case modeActivity:
+			return m.updateActivity(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -142,6 +154,10 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter", "t":
 		if r, ok := m.selected(); ok {
 			m.openTranscript(r)
+		}
+	case "a":
+		if r, ok := m.selected(); ok {
+			m.openActivity(r)
 		}
 	case "r":
 		m.fleet = loadFleet()
@@ -252,6 +268,22 @@ func transcriptOr(content, name string) string {
 	return content
 }
 
+func (m *model) openActivity(r repoStatus) {
+	m.mode = modeActivity
+	m.actName, m.actUser, m.actPath = r.name, r.repoUser, r.repoPath
+	m.actData = loadRepoActivity(r.repoUser, r.repoPath, activityDays)
+}
+
+func (m model) updateActivity(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "a":
+		m.mode = modeList
+	case "r":
+		m.actData = loadRepoActivity(m.actUser, m.actPath, activityDays)
+	}
+	return m, nil
+}
+
 func (m model) View() tea.View {
 	var content string
 	switch m.mode {
@@ -259,6 +291,8 @@ func (m model) View() tea.View {
 		content = m.transcriptView()
 	case modeEnqueue:
 		content = m.enqueueView()
+	case modeActivity:
+		content = m.activityView()
 	default:
 		content = m.listView()
 	}
@@ -297,7 +331,58 @@ func (m model) transcriptView() string {
 	return header + "\n" + m.vp.View() + "\n" + footer
 }
 
-const footerKeys = "↑/↓ move · enter/t transcript · e enqueue (pick role) · p pause · x clear queue · r refresh · q quit"
+func (m model) activityView() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(m.actName+" — activity") + "  " +
+		dimStyle.Render(fmt.Sprintf("(auto/work commits, last %d days)", activityDays)) + "\n\n")
+
+	// Heatmap: one cell per day (oldest → newest), a gap between weeks.
+	for i, dc := range m.actData.heatmap(activityDays, time.Now()) {
+		if i > 0 && i%7 == 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(heatCell(dc.count))
+	}
+	b.WriteString("\n" + dimStyle.Render("less ") +
+		heatCell(0) + heatCell(1) + heatCell(3) + heatCell(6) + heatCell(10) +
+		dimStyle.Render(" more") + "\n\n")
+
+	b.WriteString(titleStyle.Render("recent") + "\n")
+	if len(m.actData.commits) == 0 {
+		b.WriteString(dimStyle.Render("(no commits on the work branch in this window)") + "\n")
+	}
+	for i, c := range m.actData.commits {
+		if i >= activityTimelineN {
+			break
+		}
+		subj := c.subject
+		if maxw := m.width - 16; maxw > 12 && len(subj) > maxw {
+			subj = subj[:maxw-1] + "…"
+		}
+		b.WriteString(dimStyle.Render(c.when.Format("01-02 15:04")) + "  " + subj + "\n")
+	}
+
+	b.WriteString("\n" + dimStyle.Render("esc/q back · r refresh"))
+	return b.String()
+}
+
+// heatCell renders one day of the contribution heatmap, shaded by commit count.
+func heatCell(count int) string {
+	switch {
+	case count == 0:
+		return dimStyle.Render("·")
+	case count <= 2:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("28")).Render("■")
+	case count <= 5:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("34")).Render("■")
+	case count <= 9:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("40")).Render("■")
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Render("■")
+	}
+}
+
+const footerKeys = "↑/↓ move · enter/t transcript · a activity · e enqueue (pick role) · p pause · x clear queue · r refresh · q quit"
 
 func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
 
