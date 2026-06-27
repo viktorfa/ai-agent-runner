@@ -12,6 +12,10 @@
 # (ahead of the drain) and removes it, so a scheduled pass is picked up at the next
 # free slot without pausing or timing anything. Not a cron — it fires once, when free.
 #
+# Per-run status: each real run records `$CONFIG_DIR/status/<repo>` (time, what ran,
+# ok/failed, the outcome line) so the last outcome is visible without opening a
+# transcript — and the TUI can read it without sudo.
+#
 # Pause: `touch $CONFIG_DIR/PAUSED` (all repos) or `$CONFIG_DIR/repos/<name>.paused`
 # (one repo). Stop entirely: `systemctl --user stop agent-watch`.
 set -uo pipefail
@@ -21,6 +25,41 @@ INTERVAL="${WATCH_INTERVAL:-120}"
 DISPATCH="$(cd "$(dirname "$0")" && pwd)/dispatch"
 
 log() { printf '[watch %s] %s\n' "$(date -Is)" "$*"; }
+
+STATUS_DIR="$CONFIG_DIR/status"
+
+# Record a run's outcome so it's visible without opening a transcript (and so the TUI
+# can read it without sudo). One small key=value file per repo. Skipped for rc 75 (a
+# busy-skip, not a real run) so the last real outcome isn't clobbered.
+write_status() {
+	local repo="$1" rc="$2" ran="$3" tmp="$4" status outcome
+	case "$rc" in
+	0) status="ok" ;;
+	*) status="failed (exit $rc)" ;;
+	esac
+	outcome=$(grep -aE '^Done:|no ready tasks|drain stalled|agent failed|board read failed|conflicts with' "$tmp" 2>/dev/null | tail -1)
+	mkdir -p "$STATUS_DIR"
+	{
+		printf 'time=%s\n' "$(date -Is)"
+		printf 'ran=%s\n' "$ran"
+		printf 'status=%s\n' "$status"
+		printf 'outcome=%s\n' "$outcome"
+	} >"$STATUS_DIR/$repo"
+}
+
+# Run dispatch, streaming its output to the journal while capturing it, then record
+# the outcome (unless it was a busy-skip). Returns dispatch's own exit code.
+run_repo() {
+	local repo="$1"
+	shift
+	local tmp
+	tmp=$(mktemp)
+	"$DISPATCH" "$repo" "$@" 2>&1 | tee "$tmp"
+	local rc=${PIPESTATUS[0]}
+	[ "$rc" -ne 75 ] && write_status "$repo" "$rc" "$*" "$tmp"
+	rm -f "$tmp"
+	return "$rc"
+}
 
 log "starting; interval=${INTERVAL}s config=$CONFIG_DIR"
 while true; do
@@ -46,7 +85,7 @@ while true; do
 		done
 		if [ -n "$job" ]; then
 			mapfile -t jobargs <"$job"
-			"$DISPATCH" "$repo" "${jobargs[@]}"
+			run_repo "$repo" "${jobargs[@]}"
 			rc=$?
 			# 75 = repo busy (a manual dispatch holds the lock): keep the job, retry
 			# next tick. Otherwise it ran (success or a now-loud failure) — a one-off
@@ -58,7 +97,7 @@ while true; do
 			continue
 		fi
 
-		"$DISPATCH" "$repo" --drain
+		run_repo "$repo" --drain
 		rc=$?
 		case "$rc" in
 		0) ;;  # ran a drain, or early-exited because nothing was ready

@@ -17,13 +17,22 @@ import (
 )
 
 type repoStatus struct {
-	name        string
-	repoPath    string
-	repoUser    string
-	paused      bool
-	queue       []string // queued one-off jobs, oldest first (the args, e.g. "--loop steward")
-	running     bool
-	lastOutcome string // last drain outcome parsed from the newest transcript, if readable
+	name     string
+	repoPath string
+	repoUser string
+	paused   bool
+	queue    []string // queued one-off jobs, oldest first (the args, e.g. "--loop steward")
+	running  bool
+	lastRun  runStatus // last recorded run outcome (from the watcher's status file)
+}
+
+// runStatus is the watcher's per-repo record of the last real run, read from
+// $CONFIG_DIR/status/<repo>. Empty (time == "") when no run has been recorded yet.
+type runStatus struct {
+	time    string // RFC3339
+	ran     string // what ran, e.g. "--drain" or "--loop steward"
+	status  string // "ok" or "failed (exit N)"
+	outcome string // the final outcome line, e.g. "Done: 2 iteration(s), ok."
 }
 
 type fleet struct {
@@ -57,9 +66,9 @@ func loadFleet() fleet {
 			paused:   exists(filepath.Join(cd, "repos", name+".paused")),
 			queue:    readQueue(filepath.Join(cd, "queue", name)),
 			running:  repoPath != "" && strings.Contains(ps, "--workspace "+repoPath),
-			// Cheap tail just to extract the outcome line; the transcript viewer
-			// reads more on demand.
-			lastOutcome: parseOutcome(transcriptTail(repoUser, repoPath, 80)),
+			// Last outcome comes from the watcher's status file (operator-readable,
+			// no sudo). The transcript viewer still reads the log on demand.
+			lastRun: readRunStatus(cd, name),
 		})
 	}
 	return f
@@ -180,22 +189,31 @@ func repoRoles(repoUser, repoPath string) []string {
 	return defaultRoles
 }
 
-// parseOutcome finds the most recent run-outcome marker in a transcript tail.
-func parseOutcome(transcript string) string {
-	lines := strings.Split(transcript, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		l := strings.TrimSpace(lines[i])
-		switch {
-		case strings.HasPrefix(l, "Done:"),
-			strings.HasPrefix(l, "drain stalled"),
-			strings.HasPrefix(l, "agent failed"),
-			strings.Contains(l, "board read failed"):
-			return l
-		case strings.Contains(l, "no ready tasks"):
-			return "no ready tasks"
+// readRunStatus loads the watcher's last-run record for a repo (key=value lines from
+// $CONFIG_DIR/status/<repo>). Operator-readable, so no sudo. Zero value if none yet.
+func readRunStatus(cd, repo string) runStatus {
+	var s runStatus
+	data, err := os.ReadFile(filepath.Join(cd, "status", repo))
+	if err != nil {
+		return s
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "time":
+			s.time = v
+		case "ran":
+			s.ran = v
+		case "status":
+			s.status = v
+		case "outcome":
+			s.outcome = v
 		}
 	}
-	return ""
+	return s
 }
 
 // --- actions: each maps to a runner primitive, no new state ---

@@ -4,10 +4,11 @@ An operator dashboard for the runner — see every repo's status (running drain,
 queued one-offs, paused, watcher state) and fire the common actions, in one screen.
 
 It is a **pure frontend**: it reads the runner's existing operator files
-(`~/.config/agent-runner/{repos,queue}`, the `.paused` flags), `ps`, and
-`systemctl --user`, plus the agent-owned loop transcripts (read-only, via the
-existing passwordless `sudo -u <repo-user>` path). It acts only by writing those same
-operator files the same way the control plane does (drop a queue file = `bin/enqueue`;
+(`~/.config/agent-runner/{repos,queue,status}`, the `.paused` flags), `ps`, and
+`systemctl --user` — no sudo. Only the on-demand transcript viewer (and the role
+picker, which reads a repo's config) touch the agent-owned workspace, via the existing
+passwordless `sudo -u <repo-user>` path, read-only. It acts only by writing those same
+operator files the way the control plane does (drop a queue file = `bin/enqueue`;
 touch/remove the pause flag; remove the queue dir). It changes **nothing** about the
 runner's functionality, state, or storage format — remove the TUI and the runner is
 unaffected.

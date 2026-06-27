@@ -75,6 +75,9 @@ systemctl --user enable --now agent-watch.service
 ```
 
 - **Logs:** `journalctl --user -u agent-watch -f`
+- **Per-run status:** each real run writes `~/.config/agent-runner/status/<repo>`
+  (time, what ran, ok/failed, the outcome line) — the last outcome at a glance without
+  opening a transcript, and what the TUI reads.
 - **Pause:** `touch ~/.config/agent-runner/PAUSED` (all repos) or
   `~/.config/agent-runner/repos/<name>.paused` (one repo). Remove to resume.
 - **Stop:** `systemctl --user stop agent-watch`

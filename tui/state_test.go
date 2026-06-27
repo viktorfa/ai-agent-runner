@@ -55,6 +55,7 @@ func TestLoadFleetReadsRegistryQueueAndPause(t *testing.T) {
 	writeFile(t, filepath.Join(cd, "repos", "demo.conf"), "REPO_PATH=\"/srv/demo\"\nREPO_USER=\"agent\"\n")
 	writeFile(t, filepath.Join(cd, "repos", "demo.paused"), "")
 	writeFile(t, filepath.Join(cd, "queue", "demo", "20260101T000001.0-1"), "--loop\nsteward\n")
+	writeFile(t, filepath.Join(cd, "status", "demo"), "status=ok\noutcome=Done: 0 iteration(s), ok.\n")
 
 	f := loadFleet()
 	if f.configDir != cd || len(f.repos) != 1 {
@@ -69,6 +70,9 @@ func TestLoadFleetReadsRegistryQueueAndPause(t *testing.T) {
 	}
 	if len(r.queue) != 1 || r.queue[0] != "--loop steward" {
 		t.Errorf("queue = %v", r.queue)
+	}
+	if r.lastRun.status != "ok" || r.lastRun.outcome != "Done: 0 iteration(s), ok." {
+		t.Errorf("lastRun = %+v", r.lastRun)
 	}
 }
 
@@ -111,18 +115,15 @@ func TestEnqueueRoundTrips(t *testing.T) {
 	}
 }
 
-func TestParseOutcome(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"# /x/loop/a.log\nfetching origin\n\nDone: 2 iteration(s), ok.", "Done: 2 iteration(s), ok."},
-		{"no ready tasks — nothing to drain\n\nDone: 0 iteration(s), ok.", "Done: 0 iteration(s), ok."},
-		{"merging\nno ready tasks — nothing to drain", "no ready tasks"},
-		{"{\"type\":\"x\"}\ndrain stalled: 2 iterations cleared no task — parked TASK-5", "drain stalled: 2 iterations cleared no task — parked TASK-5"},
-		{"", ""},
-		{"just logs\nnothing notable here", ""},
+func TestReadRunStatus(t *testing.T) {
+	cd := t.TempDir()
+	writeFile(t, filepath.Join(cd, "status", "demo"),
+		"time=2026-06-27T13:04:34+00:00\nran=--drain\nstatus=ok\noutcome=Done: 2 iteration(s), ok.\n")
+	s := readRunStatus(cd, "demo")
+	if s.status != "ok" || s.ran != "--drain" || s.outcome != "Done: 2 iteration(s), ok." || s.time == "" {
+		t.Errorf("readRunStatus = %+v", s)
 	}
-	for _, c := range cases {
-		if got := parseOutcome(c.in); got != c.want {
-			t.Errorf("parseOutcome(%q) = %q; want %q", c.in, got, c.want)
-		}
+	if got := readRunStatus(cd, "missing"); got.time != "" || got.status != "" {
+		t.Errorf("expected zero runStatus for a missing file, got %+v", got)
 	}
 }

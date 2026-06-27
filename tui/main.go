@@ -287,8 +287,8 @@ func (m model) listView() string {
 		b.WriteString(dimStyle.Render("path:  ") + orDash(r.repoPath) + "\n")
 		b.WriteString(dimStyle.Render("user:  ") + orDash(r.repoUser) + "\n")
 		b.WriteString(dimStyle.Render("state: ") + stateLabel(r) + "\n")
-		if r.lastOutcome != "" {
-			b.WriteString(dimStyle.Render("last:  ") + r.lastOutcome + "\n")
+		if r.lastRun.time != "" {
+			b.WriteString(dimStyle.Render("last:  ") + formatLastRun(r.lastRun) + "\n")
 		}
 		if len(r.queue) > 0 {
 			b.WriteString(dimStyle.Render("queue:") + "\n")
@@ -318,7 +318,50 @@ func tags(r repoStatus) []string {
 	if n := len(r.queue); n > 0 {
 		t = append(t, infoStyle.Render(fmt.Sprintf("%d queued", n)))
 	}
+	if strings.HasPrefix(r.lastRun.status, "failed") {
+		t = append(t, errStyle.Render("✗ last run failed"))
+	}
 	return t
+}
+
+// formatLastRun renders the watcher's last-run record: colored status, the outcome
+// line, and how long ago it ran.
+func formatLastRun(s runStatus) string {
+	var status string
+	switch {
+	case strings.HasPrefix(s.status, "ok"):
+		status = okStyle.Render(s.status)
+	case strings.HasPrefix(s.status, "failed"):
+		status = errStyle.Render(s.status)
+	default:
+		status = s.status
+	}
+	parts := []string{status}
+	if s.outcome != "" {
+		parts = append(parts, s.outcome)
+	}
+	line := strings.Join(parts, " · ")
+	if rel := relTime(s.time); rel != "" {
+		line += " " + dimStyle.Render("("+rel+")")
+	}
+	return line
+}
+
+func relTime(iso string) string {
+	t, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		return ""
+	}
+	switch d := time.Since(t); {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours())/24)
+	}
 }
 
 func stateLabel(r repoStatus) string {
