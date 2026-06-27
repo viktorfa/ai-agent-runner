@@ -17,13 +17,14 @@ import (
 )
 
 type repoStatus struct {
-	name     string
-	repoPath string
-	repoUser string
-	paused   bool
-	queue    []string // queued one-off jobs, oldest first (the args, e.g. "--loop steward")
-	running  bool
-	lastRun  runStatus // last recorded run outcome (from the watcher's status file)
+	name      string
+	repoPath  string
+	repoUser  string
+	paused    bool
+	queue     []string // queued one-off jobs, oldest first (the args, e.g. "--loop steward")
+	running   bool
+	watcherOn bool      // this repo's watcher unit (or the legacy single watcher) is active
+	lastRun   runStatus // last recorded run outcome (from the watcher's status file)
 }
 
 // runStatus is the watcher's per-repo record of the last real run, read from
@@ -36,9 +37,8 @@ type runStatus struct {
 }
 
 type fleet struct {
-	configDir     string
-	repos         []repoStatus
-	watcherActive bool
+	configDir string
+	repos     []repoStatus
 }
 
 // configDir mirrors the bash control plane: $AGENT_RUNNER_CONFIG or ~/.config/agent-runner.
@@ -52,7 +52,7 @@ func configDir() string {
 
 func loadFleet() fleet {
 	cd := configDir()
-	f := fleet{configDir: cd, watcherActive: watcherActive()}
+	f := fleet{configDir: cd}
 	confs, _ := filepath.Glob(filepath.Join(cd, "repos", "*.conf"))
 	sort.Strings(confs)
 	ps := psSnapshot()
@@ -60,12 +60,13 @@ func loadFleet() fleet {
 		name := strings.TrimSuffix(filepath.Base(conf), ".conf")
 		repoPath, repoUser := parseConf(conf)
 		f.repos = append(f.repos, repoStatus{
-			name:     name,
-			repoPath: repoPath,
-			repoUser: repoUser,
-			paused:   exists(filepath.Join(cd, "repos", name+".paused")),
-			queue:    readQueue(filepath.Join(cd, "queue", name)),
-			running:  repoPath != "" && strings.Contains(ps, "--workspace "+repoPath),
+			name:      name,
+			repoPath:  repoPath,
+			repoUser:  repoUser,
+			paused:    exists(filepath.Join(cd, "repos", name+".paused")),
+			queue:     readQueue(filepath.Join(cd, "queue", name)),
+			running:   repoPath != "" && strings.Contains(ps, "--workspace "+repoPath),
+			watcherOn: repoWatcherActive(name),
 			// Last outcome comes from the watcher's status file (operator-readable,
 			// no sudo). The transcript viewer still reads the log on demand.
 			lastRun: readRunStatus(cd, name),
@@ -134,9 +135,16 @@ func psSnapshot() string {
 	return string(out)
 }
 
-func watcherActive() bool {
-	out, _ := exec.Command("systemctl", "--user", "is-active", "agent-watch").Output()
+func systemctlActive(unit string) bool {
+	out, _ := exec.Command("systemctl", "--user", "is-active", unit).Output()
 	return strings.TrimSpace(string(out)) == "active"
+}
+
+// repoWatcherActive reports whether a repo is being watched: its own per-repo unit
+// (agent-watch@<repo>) or the legacy single watcher that serves all repos. The OR keeps
+// the answer correct across the migration from one to the other.
+func repoWatcherActive(repo string) bool {
+	return systemctlActive("agent-watch@"+repo) || systemctlActive("agent-watch")
 }
 
 // activitySignals are the watcher-journal lines worth surfacing as a fleet heartbeat;
@@ -147,10 +155,13 @@ var activitySignals = []string{
 	"agent failed", "board read failed", "parked ", "conflicts with", "[watch ", "exited",
 }
 
-// activityFeed returns the most recent meaningful watcher-journal lines, oldest first.
-// Read from the operator's own user journal (`journalctl --user`) — no sudo.
-func activityFeed(maxLines int) []string {
-	out, err := exec.Command("journalctl", "--user", "-u", "agent-watch",
+// activityFeed returns the most recent meaningful watcher-journal lines for a repo,
+// oldest first. Reads both the per-repo unit (agent-watch@<repo>) and the legacy
+// single watcher, so it works in either mode; from the operator's own user journal
+// (`journalctl --user`) — no sudo.
+func activityFeed(repo string, maxLines int) []string {
+	out, err := exec.Command("journalctl", "--user",
+		"-u", "agent-watch@"+repo, "-u", "agent-watch",
 		"-n", "400", "--no-pager", "-o", "cat").Output()
 	if err != nil {
 		return nil

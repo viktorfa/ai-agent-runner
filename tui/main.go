@@ -62,7 +62,18 @@ type model struct {
 const activityBuffer = 20 // how many feed lines to keep; the view shows what fits
 
 func initialModel() model {
-	return model{fleet: loadFleet(), activity: activityFeed(activityBuffer), vp: viewport.New()}
+	m := model{fleet: loadFleet(), vp: viewport.New()}
+	m.refreshActivity()
+	return m
+}
+
+// refreshActivity loads the selected repo's activity feed (its per-repo journal).
+func (m *model) refreshActivity() {
+	if r, ok := m.selected(); ok {
+		m.activity = activityFeed(r.name, activityBuffer)
+	} else {
+		m.activity = nil
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -89,7 +100,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshTranscript() // one sudo read for the viewed repo only
 		case modeList:
 			m.fleet = loadFleet()
-			m.activity = activityFeed(activityBuffer)
+			m.refreshActivity()
 		}
 		// modeEnqueue: leave the fleet steady while the transient picker is open.
 		return m, tick()
@@ -118,10 +129,12 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
+			m.refreshActivity()
 		}
 	case "down", "j":
 		if m.cursor < len(m.fleet.repos)-1 {
 			m.cursor++
+			m.refreshActivity()
 		}
 	case "enter", "t":
 		if r, ok := m.selected(); ok {
@@ -129,7 +142,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		m.fleet = loadFleet()
-		m.activity = activityFeed(activityBuffer)
+		m.refreshActivity()
 		m.message = "refreshed"
 	case "e":
 		if r, ok := m.selected(); ok {
@@ -190,7 +203,7 @@ func (m *model) act(ok string, err error) {
 		m.message = ok
 	}
 	m.fleet = loadFleet()
-	m.activity = activityFeed(activityBuffer)
+	m.refreshActivity()
 }
 
 func (m *model) openTranscript(r repoStatus) {
@@ -269,11 +282,25 @@ const footerKeys = "↑/↓ move · enter/t transcript · e enqueue (pick role) 
 func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
 
 func (m model) headerLine() string {
-	status := errStyle.Render("watcher: inactive")
-	if m.fleet.watcherActive {
-		status = okStyle.Render("watcher: active")
+	on := 0
+	for _, r := range m.fleet.repos {
+		if r.watcherOn {
+			on++
+		}
 	}
-	return titleStyle.Render("agent-runner") + "   " + status
+	label := fmt.Sprintf("watchers: %d/%d active", on, len(m.fleet.repos))
+	style := okStyle
+	if on < len(m.fleet.repos) {
+		style = warnStyle
+	}
+	return titleStyle.Render("agent-runner") + "   " + style.Render(label)
+}
+
+func watcherLabel(r repoStatus) string {
+	if r.watcherOn {
+		return okStyle.Render("on")
+	}
+	return warnStyle.Render("off")
 }
 
 func (m model) repoListColumn() string {
@@ -303,6 +330,7 @@ func (m model) detailColumn() string {
 	b.WriteString(dimStyle.Render("path:  ") + orDash(r.repoPath) + "\n")
 	b.WriteString(dimStyle.Render("user:  ") + orDash(r.repoUser) + "\n")
 	b.WriteString(dimStyle.Render("state: ") + stateLabel(r))
+	b.WriteString("\n" + dimStyle.Render("watch: ") + watcherLabel(r))
 	if r.lastRun.time != "" {
 		b.WriteString("\n" + dimStyle.Render("last:  ") + formatLastRun(r.lastRun))
 	}
@@ -370,6 +398,9 @@ func tags(r repoStatus) []string {
 	}
 	if r.paused {
 		t = append(t, warnStyle.Render("⏸ paused"))
+	}
+	if !r.watcherOn {
+		t = append(t, warnStyle.Render("⚠ watcher off"))
 	}
 	if n := len(r.queue); n > 0 {
 		t = append(t, infoStyle.Render(fmt.Sprintf("%d queued", n)))

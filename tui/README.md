@@ -4,12 +4,14 @@ An operator dashboard for the runner — see every repo's status (running drain,
 queued one-offs, paused, watcher state) and fire the common actions, in one screen.
 
 Layout: the repo **list** and the selected repo's **detail** sit side by side, with a
-filtered **activity** feed (the watcher's journal heartbeat) below; it falls back to a
-stacked layout on narrow terminals.
+filtered **activity** feed below — the *selected* repo's watcher journal heartbeat; it
+falls back to a stacked layout on narrow terminals. Watcher status is **per repo**
+(each repo has its own `agent-watch@<repo>` unit), shown in the header count and as a
+`⚠ watcher off` tag; it also recognises the legacy single watcher during migration.
 
 It is a **pure frontend**: it reads the runner's existing operator files
 (`~/.config/agent-runner/{repos,queue,status}`, the `.paused` flags), `ps`,
-`systemctl --user`, and the watcher's journal (`journalctl --user`) — no sudo. Only the
+`systemctl --user is-active`, and the watcher journals (`journalctl --user`) — no sudo. Only the
 on-demand transcript viewer (and the role picker, which reads a repo's config) touch
 the agent-owned workspace, via the existing passwordless `sudo -u <repo-user>` path,
 read-only. It acts only by writing those same
