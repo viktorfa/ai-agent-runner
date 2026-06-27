@@ -38,21 +38,24 @@ type viewMode int
 const (
 	modeList viewMode = iota
 	modeTranscript
+	modeEnqueue
 )
 
 const chromeHeight = 4 // header + footer rows reserved around the viewport
 
 type model struct {
-	fleet   fleet
-	cursor  int
-	mode    viewMode
-	vp      viewport.Model
-	vpName  string // repo whose transcript the viewport shows
-	vpUser  string
-	vpPath  string
-	width   int
-	height  int
-	message string
+	fleet      fleet
+	cursor     int
+	mode       viewMode
+	vp         viewport.Model
+	vpName     string // repo whose transcript the viewport shows
+	vpUser     string
+	vpPath     string
+	roles      []string // role picker choices for the selected repo (modeEnqueue)
+	roleCursor int
+	width      int
+	height     int
+	message    string
 }
 
 func initialModel() model {
@@ -78,17 +81,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vp.SetHeight(max(1, msg.Height-chromeHeight))
 		return m, nil
 	case tickMsg:
-		if m.mode == modeTranscript {
+		switch m.mode {
+		case modeTranscript:
 			m.refreshTranscript() // one sudo read for the viewed repo only
-		} else {
+		case modeList:
 			m.fleet = loadFleet()
 		}
+		// modeEnqueue: leave the fleet steady while the transient picker is open.
 		return m, tick()
 	case tea.KeyPressMsg:
-		if m.mode == modeTranscript {
+		switch m.mode {
+		case modeTranscript:
 			return m.updateTranscript(msg)
+		case modeEnqueue:
+			return m.updateEnqueue(msg)
+		default:
+			return m.updateList(msg)
 		}
-		return m.updateList(msg)
 	}
 	if m.mode == modeTranscript {
 		var cmd tea.Cmd
@@ -119,7 +128,9 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.message = "refreshed"
 	case "e":
 		if r, ok := m.selected(); ok {
-			m.act("queued steward for "+r.name, enqueue(m.fleet.configDir, r.name, "--loop", "steward"))
+			m.roles = repoRoles(r.repoUser, r.repoPath)
+			m.roleCursor = 0
+			m.mode = modeEnqueue
 		}
 	case "p":
 		if r, ok := m.selected(); ok {
@@ -142,6 +153,28 @@ func (m model) updateTranscript(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.vp, cmd = m.vp.Update(msg) // scroll keys: ↑/↓, pgup/pgdn, etc.
 	return m, cmd
+}
+
+func (m model) updateEnqueue(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = modeList
+	case "up", "k":
+		if m.roleCursor > 0 {
+			m.roleCursor--
+		}
+	case "down", "j":
+		if m.roleCursor < len(m.roles)-1 {
+			m.roleCursor++
+		}
+	case "enter":
+		if r, ok := m.selected(); ok && m.roleCursor < len(m.roles) {
+			role := m.roles[m.roleCursor]
+			m.act("queued "+role+" for "+r.name, enqueue(m.fleet.configDir, r.name, "--loop", role))
+		}
+		m.mode = modeList
+	}
+	return m, nil
 }
 
 // act records an action's outcome and refreshes the fleet view.
@@ -183,13 +216,39 @@ func transcriptOr(content, name string) string {
 }
 
 func (m model) View() tea.View {
-	content := m.listView()
-	if m.mode == modeTranscript {
+	var content string
+	switch m.mode {
+	case modeTranscript:
 		content = m.transcriptView()
+	case modeEnqueue:
+		content = m.enqueueView()
+	default:
+		content = m.listView()
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
+}
+
+func (m model) enqueueView() string {
+	var b strings.Builder
+	name := ""
+	if r, ok := m.selected(); ok {
+		name = r.name
+	}
+	b.WriteString(titleStyle.Render("Enqueue a one-off on "+name) + "\n")
+	b.WriteString(dimStyle.Render("roles defined in this repo's .agent/config.json") + "\n\n")
+	for i, role := range m.roles {
+		cursor := "  "
+		label := role
+		if i == m.roleCursor {
+			cursor = selStyle.Render("> ")
+			label = selStyle.Render(role)
+		}
+		b.WriteString(cursor + label + "\n")
+	}
+	b.WriteString("\n" + dimStyle.Render("↑/↓ choose · enter queue · esc cancel"))
+	return b.String()
 }
 
 func (m model) transcriptView() string {

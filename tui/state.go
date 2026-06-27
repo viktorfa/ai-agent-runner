@@ -6,6 +6,7 @@ package main
 // It never changes the runner's storage format or behaviour.
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -149,6 +150,34 @@ func transcriptTail(repoUser, repoPath string, n int) string {
 		repoPath, n)
 	out, _ := exec.Command("sudo", "-n", "-u", repoUser, "bash", "-c", script).Output()
 	return string(out)
+}
+
+// defaultRoles are offered when a repo's .agent/config.json can't be read; they are
+// the runner's built-in roles. A repo may define more (e.g. steward).
+var defaultRoles = []string{"dev", "qa", "steward"}
+
+// repoRoles returns the roles a repo actually defines — the keys of `prompts` in its
+// .agent/config.json (read as the repo's user, since the workspace is agent-owned).
+// Falls back to defaultRoles if the config isn't readable. Read on demand (when the
+// picker opens), not on every refresh.
+func repoRoles(repoUser, repoPath string) []string {
+	if repoUser != "" && repoPath != "" {
+		path := filepath.Join(repoPath, ".agent", "config.json")
+		if out, err := exec.Command("sudo", "-n", "-u", repoUser, "cat", path).Output(); err == nil {
+			var cfg struct {
+				Prompts map[string]string `json:"prompts"`
+			}
+			if json.Unmarshal(out, &cfg) == nil && len(cfg.Prompts) > 0 {
+				roles := make([]string, 0, len(cfg.Prompts))
+				for role := range cfg.Prompts {
+					roles = append(roles, role)
+				}
+				sort.Strings(roles)
+				return roles
+			}
+		}
+	}
+	return defaultRoles
 }
 
 // parseOutcome finds the most recent run-outcome marker in a transcript tail.
