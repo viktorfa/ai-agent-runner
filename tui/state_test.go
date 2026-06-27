@@ -18,9 +18,11 @@ func writeFile(t *testing.T, path, content string) {
 
 func TestConfValue(t *testing.T) {
 	cases := map[string]string{
-		`REPO_PATH="/a/b"`: "/a/b",
-		`REPO_PATH=/a/b`:   "/a/b",
-		`REPO_PATH='/a/b'`: "/a/b",
+		`REPO_PATH="/a/b"`:               "/a/b",
+		`REPO_PATH=/a/b`:                 "/a/b",
+		`REPO_PATH='/a/b'`:               "/a/b",
+		`REPO_PATH="/a/b"   # a comment`: "/a/b", // quoted value + trailing comment
+		`REPO_PATH=/a/b # a comment`:     "/a/b", // unquoted value + trailing comment
 	}
 	for line, want := range cases {
 		if got, ok := confValue(line, "REPO_PATH"); !ok || got != want {

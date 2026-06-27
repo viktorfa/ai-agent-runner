@@ -78,11 +78,24 @@ func parseConf(path string) (repoPath, repoUser string) {
 	return repoPath, repoUser
 }
 
+// confValue extracts a shell assignment's value the way sourcing the file would:
+// the contents of a quoted string (ignoring anything after the closing quote, e.g. a
+// trailing `# comment`), or for an unquoted value, up to the first whitespace or `#`.
 func confValue(line, key string) (string, bool) {
 	if !strings.HasPrefix(line, key+"=") {
 		return "", false
 	}
-	return strings.Trim(strings.TrimPrefix(line, key+"="), "\"'"), true
+	v := strings.TrimSpace(strings.TrimPrefix(line, key+"="))
+	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
+		if end := strings.IndexByte(v[1:], v[0]); end >= 0 {
+			return v[1 : 1+end], true
+		}
+		return v[1:], true // unterminated quote — take the rest
+	}
+	if i := strings.IndexAny(v, " \t#"); i >= 0 {
+		v = v[:i]
+	}
+	return v, true
 }
 
 // readQueue lists pending one-off jobs (FIFO: os.ReadDir returns names sorted).
