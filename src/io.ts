@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { createWriteStream, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { parseReadyTaskIds } from './board'
 import { type AgentConfig, promptPath } from './config'
 import { workBranchPushArgs } from './git'
 import type { OrchestrateDeps } from './orchestrate'
@@ -26,10 +27,11 @@ function exec(
 	args: string[],
 	cwd: string,
 	{ sink, stdin, quiet }: ExecOpts = {},
-): Promise<{ code: number; stdout: string }> {
+): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(cmd, args, { cwd })
 		let stdout = ''
+		let stderr = ''
 		child.stdout?.on('data', (chunk: Buffer) => {
 			const text = chunk.toString()
 			stdout += text
@@ -39,13 +41,15 @@ function exec(
 			}
 		})
 		child.stderr?.on('data', (chunk: Buffer) => {
+			// Captured even when quiet, so a failed command can report why it failed.
+			stderr += chunk.toString()
 			if (!quiet) {
 				process.stderr.write(chunk)
 				sink?.(chunk.toString())
 			}
 		})
 		child.on('error', reject)
-		child.on('close', (code) => resolve({ code: code ?? 1, stdout }))
+		child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
 		if (stdin !== undefined) child.stdin?.end(stdin)
 	})
 }
@@ -69,26 +73,67 @@ export function openSink(logFile: string): {
 	}
 }
 
-/** Count the To Do tasks on the Backlog board (the agent's ready work). */
+const BOARD_LIST = ['exec', 'backlog', 'task', 'list', '--plain']
+
+/**
+ * Ready (To Do) task ids on the Backlog board, top first. Throws if the board
+ * command itself fails — a non-zero exit must not be coerced into "0 ready",
+ * which would make a tooling failure (e.g. pnpm/corepack breakage) look like an
+ * empty queue and silently idle the loop.
+ */
+async function readReadyTaskIds(cwd: string): Promise<string[]> {
+	const { code, stdout, stderr } = await exec('pnpm', BOARD_LIST, cwd, {
+		quiet: true,
+	})
+	if (code !== 0) {
+		throw new Error(
+			`board read failed: \`pnpm ${BOARD_LIST.join(' ')}\` exited ${code} — ` +
+				'cannot distinguish ready work from an empty queue. ' +
+				`stderr: ${stderr.trim() || '(none)'}`,
+		)
+	}
+	return parseReadyTaskIds(stdout)
+}
+
+/** Count the To Do tasks on the board (the agent's ready work). */
 async function readyCount(cwd: string): Promise<number> {
-	const { stdout } = await exec(
+	return (await readReadyTaskIds(cwd)).length
+}
+
+/**
+ * Park the top ready task as Blocked so a drain that keeps making no progress
+ * surfaces the offending task for review instead of re-attempting it forever.
+ * Returns the parked id, or null if the board has no ready task to park.
+ */
+async function parkStuckTask(
+	cwd: string,
+	note: string,
+): Promise<string | null> {
+	const [top] = await readReadyTaskIds(cwd)
+	if (!top) return null
+	const { code, stderr } = await exec(
 		'pnpm',
-		['exec', 'backlog', 'task', 'list', '--plain'],
+		[
+			'exec',
+			'backlog',
+			'task',
+			'edit',
+			top,
+			'-s',
+			'Blocked',
+			'--comment',
+			note,
+		],
 		cwd,
 		{ quiet: true },
 	)
-	// Scan the "To Do:" section up to the next "<Header>:" line, counting task ids.
-	let inTodo = false
-	let count = 0
-	for (const line of stdout.split('\n')) {
-		if (/^To Do:/.test(line)) {
-			inTodo = true
-			continue
-		}
-		if (inTodo && /^\S.*:\s*$/.test(line)) break
-		if (inTodo && /\bTASK-\d+\b/i.test(line)) count += 1
+	if (code !== 0) {
+		throw new Error(
+			`failed to park ${top}: backlog edit exited ${code} — ` +
+				`${stderr.trim() || '(none)'}`,
+		)
 	}
-	return count
+	return top
 }
 
 /** Real IO for `runLoop`: read the prompt, spawn the agent, push the branch. */
@@ -122,6 +167,8 @@ export function makeDeps(
 		},
 
 		readyCount: () => readyCount(cwd),
+
+		parkStuckTask: (note) => parkStuckTask(cwd, note),
 
 		log: (line) => {
 			process.stderr.write(`${line}\n`)

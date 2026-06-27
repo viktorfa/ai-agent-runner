@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+	AGENT_FAILURE_LIMIT,
 	DRAIN_SAFETY_CAP,
 	DRAIN_STALL_LIMIT,
 	type RunDeps,
@@ -25,14 +26,16 @@ function makeDeps(stdout: string, readyCount = vi.fn(async () => 0)) {
 		},
 	)
 	const push = vi.fn(async () => true)
+	const parkStuckTask = vi.fn(async () => 'TASK-STUCK' as string | null)
 	const deps: RunDeps = {
 		readPrompt: async () => 'BASE PROMPT',
 		spawnAgent,
 		push,
 		readyCount,
+		parkStuckTask,
 		log: () => {},
 	}
-	return { deps, spawnAgent, push, prompts, readyCount }
+	return { deps, spawnAgent, push, prompts, readyCount, parkStuckTask }
 }
 
 describe('runLoop', () => {
@@ -91,15 +94,31 @@ describe('runLoop', () => {
 			expect(spawnAgent).not.toHaveBeenCalled()
 		})
 
-		it('stops after DRAIN_STALL_LIMIT iterations that clear no task', async () => {
-			// count never drops -> every iteration is a no-progress stall
-			const { deps, spawnAgent } = makeDeps(
+		it('parks the stuck task and stops after DRAIN_STALL_LIMIT no-progress iterations', async () => {
+			// agent runs cleanly (turn.completed) but the count never drops
+			const { deps, spawnAgent, parkStuckTask } = makeDeps(
 				COMPLETED,
 				vi.fn(async () => 3),
 			)
 			const outcomes = await runLoop({ ...baseOpts, drain: true }, deps)
 			expect(outcomes).toHaveLength(DRAIN_STALL_LIMIT)
 			expect(spawnAgent).toHaveBeenCalledTimes(DRAIN_STALL_LIMIT)
+			expect(parkStuckTask).toHaveBeenCalledTimes(1)
+		})
+
+		it('stops on repeated agent failure without parking a task', async () => {
+			// no turn.completed -> result.ok is false (agent error, not a bad task)
+			const { deps, spawnAgent, push, parkStuckTask } = makeDeps(
+				'{"type":"item.completed"}',
+				vi.fn(async () => 3),
+			)
+			const outcomes = await runLoop({ ...baseOpts, drain: true }, deps)
+			expect(outcomes).toHaveLength(AGENT_FAILURE_LIMIT)
+			expect(spawnAgent).toHaveBeenCalledTimes(AGENT_FAILURE_LIMIT)
+			expect(parkStuckTask).not.toHaveBeenCalled()
+			expect(push).not.toHaveBeenCalled()
+			// every iteration failed -> the run reports failure (non-zero exit)
+			expect(outcomes.every((o) => !o.result.ok)).toBe(true)
 		})
 
 		it('stops at the safety cap under steady progress', async () => {

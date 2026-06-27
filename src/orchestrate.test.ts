@@ -46,6 +46,7 @@ function makeDeps(overrides?: {
 		spawnAgent,
 		push,
 		readyCount: async () => overrides?.ready ?? 1,
+		parkStuckTask: async () => null,
 		log: () => {},
 		git,
 		runSetup,

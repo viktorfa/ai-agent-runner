@@ -23,6 +23,14 @@ export const DRAIN_SAFETY_CAP = 25
 export const DRAIN_STALL_LIMIT = 2
 
 /**
+ * Stop the drain after this many consecutive iterations where the agent itself
+ * failed (a crash or API/auth-adjacent error, not an unfinishable task). Unlike a
+ * stall we do NOT park a task here — the fault is the agent or its environment, so
+ * we stop and let the run exit non-zero rather than blame (and Block) good work.
+ */
+export const AGENT_FAILURE_LIMIT = 2
+
+/**
  * IO the run loop needs, injected so the orchestration is unit-testable without
  * spawning real agents, touching the filesystem, or pushing to a remote.
  */
@@ -35,6 +43,11 @@ export interface RunDeps {
 	push(): Promise<boolean>
 	/** Number of ready (To Do) tasks on the board — drives drain + stall detection. */
 	readyCount(): Promise<number>
+	/**
+	 * Park the top ready task as Blocked (resolve its id, or null if none) so the
+	 * drain can surface a task it cannot finish instead of re-attempting it forever.
+	 */
+	parkStuckTask(note: string): Promise<string | null>
 	/** Progress logging. */
 	log(line: string): void
 }
@@ -73,8 +86,10 @@ export async function runLoop(
 
 	if (opts.drain) {
 		let ran = 0
-		let stall = 0
-		let reason: 'empty' | 'auth' | 'cap' | 'stalled' = 'cap'
+		let unproductive = 0
+		let agentFailures = 0
+		let parked: string | null = null
+		let reason: 'empty' | 'auth' | 'cap' | 'stalled' | 'agent-error' = 'cap'
 		while (ran < DRAIN_SAFETY_CAP) {
 			const before = await deps.readyCount()
 			if (before === 0) {
@@ -87,24 +102,51 @@ export async function runLoop(
 				reason = 'auth'
 				break
 			}
-			const after = await deps.readyCount()
-			if (after >= before) {
-				stall += 1
-				if (stall >= DRAIN_STALL_LIMIT) {
-					reason = 'stalled'
+			if (!result.ok) {
+				// The agent itself failed (crash / API error), not the task. Don't
+				// blame a task — retry a couple times, then stop so a broken agent or
+				// outage surfaces (non-zero exit) instead of churning the board.
+				agentFailures += 1
+				if (agentFailures >= AGENT_FAILURE_LIMIT) {
+					reason = 'agent-error'
 					break
 				}
-			} else {
-				stall = 0
+				continue
+			}
+			agentFailures = 0
+			const after = await deps.readyCount()
+			if (after < before) {
+				unproductive = 0
+				continue
+			}
+			// Agent ran cleanly but cleared nothing: the top task resists completion.
+			// After the stall limit, park it (Blocked) so it stops re-spinning across
+			// drains, then stop this drain — the next poll resumes with it removed.
+			unproductive += 1
+			if (unproductive >= DRAIN_STALL_LIMIT) {
+				parked = await deps.parkStuckTask(
+					`Auto-parked by the drain: ${DRAIN_STALL_LIMIT} clean agent ` +
+						'iterations made no progress on this task. Needs human review.',
+				)
+				reason = 'stalled'
+				break
 			}
 		}
 		if (reason === 'empty')
 			deps.log('board has no ready tasks — drain complete')
 		else if (reason === 'auth') deps.log('authentication failed — stopping')
+		else if (reason === 'agent-error')
+			deps.log(
+				`agent failed ${AGENT_FAILURE_LIMIT} iteration(s) in a row — stopping ` +
+					'(see transcript; the run exits non-zero)',
+			)
 		else if (reason === 'stalled')
 			deps.log(
-				`drain stalled: ${DRAIN_STALL_LIMIT} iterations cleared no task — ` +
-					'stopping (a task the agent could not complete; left for review)',
+				parked
+					? `drain stalled: ${DRAIN_STALL_LIMIT} iterations cleared no task — ` +
+							`parked ${parked} (Blocked) for review, stopping`
+					: `drain stalled: ${DRAIN_STALL_LIMIT} iterations cleared no task ` +
+							'and none could be parked — stopping',
 			)
 		else
 			deps.log(
