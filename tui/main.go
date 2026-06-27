@@ -53,6 +53,7 @@ type model struct {
 	vpPath     string
 	roles      []string // role picker choices for the selected repo (modeEnqueue)
 	roleCursor int
+	iterations int      // chosen iteration count in the enqueue picker (default 1)
 	activity   []string // filtered watcher-journal feed (fleet heartbeat)
 	width      int
 	height     int
@@ -60,6 +61,8 @@ type model struct {
 }
 
 const activityBuffer = 20 // how many feed lines to keep; the view shows what fits
+
+const maxIterations = 9 // upper bound for the enqueue picker; use the CLI for more
 
 func initialModel() model {
 	m := model{fleet: loadFleet(), vp: viewport.New()}
@@ -148,6 +151,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if r, ok := m.selected(); ok {
 			m.roles = repoRoles(r.repoUser, r.repoPath)
 			m.roleCursor = 0
+			m.iterations = 1
 			m.mode = modeEnqueue
 		}
 	case "p":
@@ -185,10 +189,24 @@ func (m model) updateEnqueue(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.roleCursor < len(m.roles)-1 {
 			m.roleCursor++
 		}
+	case "left", "h", "-":
+		if m.iterations > 1 {
+			m.iterations--
+		}
+	case "right", "l", "+":
+		if m.iterations < maxIterations {
+			m.iterations++
+		}
 	case "enter":
 		if r, ok := m.selected(); ok && m.roleCursor < len(m.roles) {
 			role := m.roles[m.roleCursor]
-			m.act("queued "+role+" for "+r.name, enqueue(m.fleet.configDir, r.name, "--loop", role))
+			args := []string{"--loop", role}
+			label := "queued " + role
+			if m.iterations > 1 { // omit --iterations 1 (the default) to keep it tidy
+				args = append(args, "--iterations", fmt.Sprintf("%d", m.iterations))
+				label += fmt.Sprintf(" ×%d", m.iterations)
+			}
+			m.act(label+" for "+r.name, enqueue(m.fleet.configDir, r.name, args...))
 		}
 		m.mode = modeList
 	}
@@ -266,7 +284,9 @@ func (m model) enqueueView() string {
 		}
 		b.WriteString(cursor + label + "\n")
 	}
-	b.WriteString("\n" + dimStyle.Render("↑/↓ choose · enter queue · esc cancel"))
+	b.WriteString("\n" + dimStyle.Render("iterations: ") +
+		selStyle.Render(fmt.Sprintf("%d", m.iterations)) + dimStyle.Render("  (←/→ to change)") + "\n")
+	b.WriteString("\n" + dimStyle.Render("↑/↓ role · ←/→ iterations · enter queue · esc cancel"))
 	return b.String()
 }
 
