@@ -50,6 +50,10 @@ sudo visudo -cf /etc/sudoers.d/agent-runner-dispatch     # validate before trust
 ~agent/agent-runner/bin/dispatch <repo> --loop qa        # a qa pass instead of dev
 ```
 
+`dispatch` runs **now** and is `flock`-guarded: if a run for that repo is already
+active it returns 75 and does nothing (it does not wait). To run something *when the
+repo is next free* without timing it yourself, queue it instead — see One-off runs.
+
 The runner is its own clone — update it with `cd ~agent/agent-runner && git pull`
 (no in-product bootstrap; `orchestrate` owns each product repo's git).
 
@@ -79,3 +83,20 @@ systemctl --user enable --now agent-watch.service
 With a repo in `accumulate` mode the watcher just keeps `auto/work` drained; you
 merge `auto/work → base` periodically. To update the runner code:
 `cd ~agent/agent-runner && git pull && systemctl --user restart agent-watch`.
+
+## One-off runs (enqueue)
+To run a role once — e.g. a steward or qa pass — without timing it against the drain
+or pausing anything, **queue it** and let the watcher pick it up at the next free slot:
+
+```bash
+~agent/agent-runner/bin/enqueue <repo> --loop steward
+~agent/agent-runner/bin/enqueue <repo> --loop qa
+```
+
+`enqueue` drops a job file under `~/.config/agent-runner/queue/<repo>/`. Each tick the
+watcher runs that repo's **oldest** queued job **before** the periodic drain, then
+removes it once it has run — a one-off runs once. `flock` still serialises everything,
+so a queued run never overlaps the drain or a manual `dispatch`; if the repo is busy
+when its turn comes the job stays queued and retries next tick. It's a queue, **not a
+cron**: the run fires the next time the repo is free, then it's gone. Cancel a pending
+job by deleting its file from the queue dir.

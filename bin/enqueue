@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Queue a ONE-OFF run for a repo — run as VIKTOR (the operator). The watcher picks
+# it up at the next free slot for that repo, ahead of the periodic drain, so you can
+# schedule e.g. a steward pass without timing it against other work or pausing the
+# drain. flock still serialises everything, so a queued run never overlaps another.
+#
+#   enqueue <repo> <run options...>
+#   enqueue floorplanner --loop steward
+#   enqueue floorplanner --loop qa
+#
+# Writes one job file under $CONFIG_DIR/queue/<repo>/ (FIFO by name). The watcher
+# dispatches the oldest pending job, then removes it once it has run — a one-off
+# runs once. Not a schedule/cron: it fires the next time the repo is free, period.
+set -euo pipefail
+
+CONFIG_DIR="${AGENT_RUNNER_CONFIG:-$HOME/.config/agent-runner}"
+
+die() {
+	echo "enqueue: $*" >&2
+	exit 1
+}
+
+[ $# -ge 1 ] || die "usage: enqueue <repo> <run options...>  (e.g. enqueue foo --loop steward)"
+repo="$1"
+shift
+
+[ -f "$CONFIG_DIR/repos/$repo.conf" ] ||
+	die "no registry entry for '$repo' at $CONFIG_DIR/repos/$repo.conf"
+[ $# -ge 1 ] || die "nothing to queue — pass the run options, e.g. --loop steward"
+
+queue="$CONFIG_DIR/queue/$repo"
+mkdir -p "$queue"
+
+# FIFO by filename: a sortable UTC timestamp (to the nanosecond) + pid orders jobs
+# and avoids collisions. One argument per line so args survive intact (spaces and
+# all) when the watcher reads them back.
+job="$queue/$(date -u +%Y%m%dT%H%M%S.%N)-$$"
+printf '%s\n' "$@" >"$job"
+
+echo "enqueue: queued [$*] for $repo -> $job" >&2

@@ -7,6 +7,11 @@
 # mutex, and orchestrate early-exits when nothing is ready — so a poll over an
 # idle/active repo is cheap (a busy repo's dispatch returns 75 and is skipped).
 #
+# One-off runs: `enqueue <repo> --loop steward` drops a job file under
+# `$CONFIG_DIR/queue/<repo>/`; each tick that repo runs its oldest queued job
+# (ahead of the drain) and removes it, so a scheduled pass is picked up at the next
+# free slot without pausing or timing anything. Not a cron — it fires once, when free.
+#
 # Pause: `touch $CONFIG_DIR/PAUSED` (all repos) or `$CONFIG_DIR/repos/<name>.paused`
 # (one repo). Stop entirely: `systemctl --user stop agent-watch`.
 set -uo pipefail
@@ -29,6 +34,30 @@ while true; do
 	for conf in "$CONFIG_DIR"/repos/*.conf; do
 		repo="$(basename "$conf" .conf)"
 		[ -f "$CONFIG_DIR/repos/$repo.paused" ] && continue
+
+		# A queued one-off (enqueue <repo> ...) takes precedence over the periodic
+		# drain, so a scheduled run (e.g. a steward pass) is picked up at the next
+		# free slot without pausing or timing anything. Oldest first (FIFO); one job
+		# per repo per tick — the drain resumes next tick.
+		job=""
+		for f in "$CONFIG_DIR/queue/$repo"/*; do
+			job="$f"
+			break
+		done
+		if [ -n "$job" ]; then
+			mapfile -t jobargs <"$job"
+			"$DISPATCH" "$repo" "${jobargs[@]}"
+			rc=$?
+			# 75 = repo busy (a manual dispatch holds the lock): keep the job, retry
+			# next tick. Otherwise it ran (success or a now-loud failure) — a one-off
+			# runs once, so drop it.
+			if [ "$rc" -ne 75 ]; then
+				rm -f "$job"
+				[ "$rc" -ne 0 ] && log "queued ${jobargs[*]} for $repo exited $rc"
+			fi
+			continue
+		fi
+
 		"$DISPATCH" "$repo" --drain
 		rc=$?
 		case "$rc" in
