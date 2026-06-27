@@ -15,17 +15,21 @@ bash control plane.
 
 ## Build
 
-Needs Go (see `control/README.md`). Build the binary into `bin/` so it sits next to
-`enqueue`/`dispatch` (the TUI resolves those as siblings):
+Needs Go (see `control/README.md`). Build it **as the operator** — the operator has
+open egress so `go` can fetch modules; the agent user is egress-locked and can't. The
+binary is self-contained, so put it anywhere you can run it:
 
 ```bash
-go -C ~agent/agent-runner/tui build -o ~agent/agent-runner/bin/tui
+mkdir -p ~/bin && go -C /home/agent/agent-runner/tui build -buildvcs=false -o ~/bin/tui
 ```
+
+`-buildvcs=false` because the build runs as a different user than owns the clone, so
+Go's git VCS stamping trips on `safe.directory` — and the TUI doesn't need the stamp.
 
 ## Run
 
 ```bash
-~agent/agent-runner/bin/tui
+~/bin/tui
 ```
 
 Honours `$AGENT_RUNNER_CONFIG` (defaults to `~/.config/agent-runner`), same as the
