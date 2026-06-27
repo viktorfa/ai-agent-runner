@@ -53,13 +53,16 @@ type model struct {
 	vpPath     string
 	roles      []string // role picker choices for the selected repo (modeEnqueue)
 	roleCursor int
+	activity   []string // filtered watcher-journal feed (fleet heartbeat)
 	width      int
 	height     int
 	message    string
 }
 
+const activityBuffer = 20 // how many feed lines to keep; the view shows what fits
+
 func initialModel() model {
-	return model{fleet: loadFleet(), vp: viewport.New()}
+	return model{fleet: loadFleet(), activity: activityFeed(activityBuffer), vp: viewport.New()}
 }
 
 func (m model) Init() tea.Cmd {
@@ -86,6 +89,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshTranscript() // one sudo read for the viewed repo only
 		case modeList:
 			m.fleet = loadFleet()
+			m.activity = activityFeed(activityBuffer)
 		}
 		// modeEnqueue: leave the fleet steady while the transient picker is open.
 		return m, tick()
@@ -125,6 +129,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		m.fleet = loadFleet()
+		m.activity = activityFeed(activityBuffer)
 		m.message = "refreshed"
 	case "e":
 		if r, ok := m.selected(); ok {
@@ -185,6 +190,7 @@ func (m *model) act(ok string, err error) {
 		m.message = ok
 	}
 	m.fleet = loadFleet()
+	m.activity = activityFeed(activityBuffer)
 }
 
 func (m *model) openTranscript(r repoStatus) {
@@ -258,20 +264,23 @@ func (m model) transcriptView() string {
 	return header + "\n" + m.vp.View() + "\n" + footer
 }
 
-func (m model) listView() string {
-	var b strings.Builder
+const footerKeys = "↑/↓ move · enter/t transcript · e enqueue (pick role) · p pause · x clear queue · r refresh · q quit"
 
-	b.WriteString(titleStyle.Render("agent-runner") + "   ")
+func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
+
+func (m model) headerLine() string {
+	status := errStyle.Render("watcher: inactive")
 	if m.fleet.watcherActive {
-		b.WriteString(okStyle.Render("watcher: active"))
-	} else {
-		b.WriteString(errStyle.Render("watcher: inactive"))
+		status = okStyle.Render("watcher: active")
 	}
-	b.WriteString("\n\n")
+	return titleStyle.Render("agent-runner") + "   " + status
+}
 
+func (m model) repoListColumn() string {
 	if len(m.fleet.repos) == 0 {
-		b.WriteString(dimStyle.Render("no repos in "+m.fleet.configDir+"/repos/") + "\n")
+		return dimStyle.Render("no repos in " + m.fleet.configDir + "/repos/")
 	}
+	rows := make([]string, len(m.fleet.repos))
 	for i, r := range m.fleet.repos {
 		cursor := "  "
 		name := r.name
@@ -279,32 +288,79 @@ func (m model) listView() string {
 			cursor = selStyle.Render("> ")
 			name = selStyle.Render(name)
 		}
-		b.WriteString(cursor + name + "  " + strings.Join(tags(r), " ") + "\n")
+		rows[i] = cursor + name + "  " + strings.Join(tags(r), " ")
 	}
+	return strings.Join(rows, "\n")
+}
 
-	if r, ok := m.selected(); ok {
-		b.WriteString("\n" + titleStyle.Render(r.name) + "\n")
-		b.WriteString(dimStyle.Render("path:  ") + orDash(r.repoPath) + "\n")
-		b.WriteString(dimStyle.Render("user:  ") + orDash(r.repoUser) + "\n")
-		b.WriteString(dimStyle.Render("state: ") + stateLabel(r) + "\n")
-		if r.lastRun.time != "" {
-			b.WriteString(dimStyle.Render("last:  ") + formatLastRun(r.lastRun) + "\n")
-		}
-		if len(r.queue) > 0 {
-			b.WriteString(dimStyle.Render("queue:") + "\n")
-			for _, j := range r.queue {
-				b.WriteString("  • " + j + "\n")
-			}
+func (m model) detailColumn() string {
+	r, ok := m.selected()
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(r.name) + "\n")
+	b.WriteString(dimStyle.Render("path:  ") + orDash(r.repoPath) + "\n")
+	b.WriteString(dimStyle.Render("user:  ") + orDash(r.repoUser) + "\n")
+	b.WriteString(dimStyle.Render("state: ") + stateLabel(r))
+	if r.lastRun.time != "" {
+		b.WriteString("\n" + dimStyle.Render("last:  ") + formatLastRun(r.lastRun))
+	}
+	if len(r.queue) > 0 {
+		b.WriteString("\n" + dimStyle.Render("queue:"))
+		for _, j := range r.queue {
+			b.WriteString("\n  • " + j)
 		}
 	}
-
 	if m.message != "" {
-		b.WriteString("\n" + dimStyle.Render(m.message) + "\n")
+		b.WriteString("\n\n" + dimStyle.Render(m.message))
 	}
-	b.WriteString("\n" + dimStyle.Render(
-		"↑/↓ move · enter/t transcript · e enqueue (pick role) · p pause · x clear queue · r refresh · q quit"))
-
 	return b.String()
+}
+
+func (m model) activityPanel(maxLines int) string {
+	if maxLines < 1 {
+		return titleStyle.Render("activity")
+	}
+	lines := m.activity
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	body := dimStyle.Render("(no recent activity)")
+	if len(lines) > 0 {
+		body = dimStyle.Render(strings.Join(lines, "\n"))
+	}
+	return titleStyle.Render("activity") + "\n" + body
+}
+
+func (m model) listView() string {
+	header := m.headerLine()
+	footer := dimStyle.Render(footerKeys)
+
+	// Before the first window-size message, render simply stacked.
+	if m.width == 0 || m.height == 0 {
+		out := header + "\n\n" + m.repoListColumn()
+		if d := m.detailColumn(); d != "" {
+			out += "\n\n" + d
+		}
+		return out + "\n\n" + footer
+	}
+
+	activityH := clamp(m.height/3, 4, 10)
+	topH := max(3, m.height-lipgloss.Height(header)-activityH-4)
+
+	var top string
+	if m.width >= 70 { // wide enough to split; otherwise stack
+		lw := clamp(m.width/3, 24, 40)
+		left := lipgloss.NewStyle().Width(lw).Height(topH).MaxHeight(topH).Render(m.repoListColumn())
+		right := lipgloss.NewStyle().Width(m.width - lw).Height(topH).MaxHeight(topH).
+			PaddingLeft(2).Render(m.detailColumn())
+		top = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	} else {
+		top = m.repoListColumn() + "\n\n" + m.detailColumn()
+	}
+
+	return header + "\n" + top + "\n" + m.activityPanel(activityH-1) + "\n" + footer
 }
 
 func tags(r repoStatus) []string {

@@ -139,6 +139,41 @@ func watcherActive() bool {
 	return strings.TrimSpace(string(out)) == "active"
 }
 
+// activitySignals are the watcher-journal lines worth surfacing as a fleet heartbeat;
+// everything else (git diffstats, PAM sessions, branch-tracking noise, codex JSON) is
+// dropped.
+var activitySignals = []string{
+	"dispatch:", "=== iteration", "Done:", "no ready tasks", "drain stalled",
+	"agent failed", "board read failed", "parked ", "conflicts with", "[watch ", "exited",
+}
+
+// activityFeed returns the most recent meaningful watcher-journal lines, oldest first.
+// Read from the operator's own user journal (`journalctl --user`) — no sudo.
+func activityFeed(maxLines int) []string {
+	out, err := exec.Command("journalctl", "--user", "-u", "agent-watch",
+		"-n", "400", "--no-pager", "-o", "cat").Output()
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		for _, sig := range activitySignals {
+			if strings.Contains(line, sig) {
+				lines = append(lines, line)
+				break
+			}
+		}
+	}
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return lines
+}
+
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
