@@ -58,34 +58,45 @@ The runner is its own clone — update it with `cd ~agent/agent-runner && git pu
 (no in-product bootstrap; `orchestrate` owns each product repo's git).
 
 ## Watcher (push and walk away)
-`bin/watch` (run as the operator) polls the registry and drains each repo's board
-through `dispatch` — so you just push tickets, no SSH, no manual dispatch. It's
-stateless: the board is the queue, dispatch's `flock` is the per-repo mutex (a poll
-while a run is active returns 75 and is skipped), and `orchestrate` early-exits when
-nothing's ready (idle polls are cheap).
+`bin/watch` (run as the operator) drains repo boards through `dispatch` — so you just
+push tickets, no SSH, no manual dispatch. `dispatch`'s `flock` is the per-repo mutex (a
+poll while a run is active returns 75 and is skipped), and `orchestrate` early-exits
+when nothing's ready (idle polls are cheap). It has two modes:
 
-Install the systemd `--user` unit (as the operator on the executor):
+- `bin/watch <repo>` — serve **one** repo. Run one process per repo (below) for
+  **parallelism across repos** while the flock keeps each repo sequential with itself.
+- `bin/watch` (no arg) — serve **all** registry repos from one loop, sequentially.
+  Simpler, but a long drain in one repo blocks the others. Legacy / single-box.
+
+### Recommended: one watcher per repo (template unit)
+Install the `--user` **template** unit and enable one instance per repo:
 ```bash
 loginctl enable-linger "$USER"        # keep it running while you're logged out (overnight!)
 mkdir -p ~/.config/systemd/user
-cp ~agent/agent-runner/control/systemd/agent-watch.service ~/.config/systemd/user/
-# (the unit's ExecStart already points at /home/agent/agent-runner/bin/watch)
+cp ~agent/agent-runner/control/systemd/agent-watch@.service ~/.config/systemd/user/
+# (ExecStart already points at /home/agent/agent-runner/bin/watch %i)
 systemctl --user daemon-reload
-systemctl --user enable --now agent-watch.service
+systemctl --user enable --now agent-watch@floorplanner.service agent-watch@teksta.service
 ```
+Adding a repo: drop its `repos/<name>.conf`, then `systemctl --user enable --now
+agent-watch@<name>.service` (enabling an instance is also how you bound concurrency —
+enable only as many as the box can take).
 
-- **Logs:** `journalctl --user -u agent-watch -f`
+- **Logs:** `journalctl --user -u agent-watch@<repo> -f` (per repo) or
+  `journalctl --user -u 'agent-watch@*'` (all).
 - **Per-run status:** each real run writes `~/.config/agent-runner/status/<repo>`
   (time, what ran, ok/failed, the outcome line) — the last outcome at a glance without
   opening a transcript, and what the TUI reads.
 - **Pause:** `touch ~/.config/agent-runner/PAUSED` (all repos) or
-  `~/.config/agent-runner/repos/<name>.paused` (one repo). Remove to resume.
-- **Stop:** `systemctl --user stop agent-watch`
+  `~/.config/agent-runner/repos/<name>.paused` (one repo); or stop the instance:
+  `systemctl --user stop agent-watch@<repo>`.
 - **Cadence:** `WATCH_INTERVAL` (seconds, default 120) in the unit's `Environment=`.
+- **Update the runner:** `cd ~agent/agent-runner && git pull && systemctl --user
+  restart 'agent-watch@*'`.
 
-With a repo in `accumulate` mode the watcher just keeps `auto/work` drained; you
-merge `auto/work → base` periodically. To update the runner code:
-`cd ~agent/agent-runner && git pull && systemctl --user restart agent-watch`.
+The legacy single unit (`control/systemd/agent-watch.service`, serving all repos from
+one loop) still works and is the fallback / rollback target; don't run it alongside the
+per-repo instances (they'd double-drive every repo).
 
 ## One-off runs (enqueue)
 To run a role once — e.g. a steward or qa pass — without timing it against the drain

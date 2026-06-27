@@ -1,0 +1,31 @@
+# systemd --user TEMPLATE unit for a per-repo agent watcher. Runs as the OPERATOR.
+#
+# One instance per repo gives parallelism ACROSS repos, while dispatch's per-repo
+# flock keeps each repo strictly sequential with itself. `%i` is the instance name =
+# the repo (must match a `~/.config/agent-runner/repos/<repo>.conf`).
+#
+# Install (on the executor, as the operator):
+#   loginctl enable-linger "$USER"        # keep it running when logged out (overnight!)
+#   mkdir -p ~/.config/systemd/user
+#   cp <agent-runner>/control/systemd/agent-watch@.service ~/.config/systemd/user/
+#   # set ExecStart's path to match your deployment, then enable one instance per repo:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agent-watch@floorplanner.service agent-watch@teksta.service
+#
+# Per-repo logs:  journalctl --user -u agent-watch@<repo> -f
+# All watchers:   journalctl --user -u 'agent-watch@*'
+# Stop/pause one: systemctl --user stop agent-watch@<repo>   (or `touch ~/.config/agent-runner/repos/<repo>.paused`)
+
+[Unit]
+Description=Agent runner watcher (%i) — drains %i's board onto auto/work
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/agent/agent-runner/bin/watch %i
+Environment=WATCH_INTERVAL=120
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,28 +1,27 @@
 #!/usr/bin/env bash
-# Watcher — run as VIKTOR (typically via the systemd --user unit). Polls the
-# operator registry and drains each repo's board through `dispatch`, so you just
-# push tickets and walk away; no SSH, no manual dispatch.
+# Watcher — run as VIKTOR (typically via a systemd --user unit). Drains repo boards
+# through `dispatch` so you just push tickets and walk away; no SSH, no manual dispatch.
 #
-# Stateless by design: the board is the queue, dispatch's flock is the per-repo
-# mutex, and orchestrate early-exits when nothing is ready — so a poll over an
-# idle/active repo is cheap (a busy repo's dispatch returns 75 and is skipped).
+#   watch            all repos in the registry, sequentially (legacy / single-box mode)
+#   watch <repo>     only <repo> — run one process per repo (the `agent-watch@<repo>`
+#                    template unit) for parallelism ACROSS repos, while dispatch's
+#                    per-repo flock keeps each repo strictly sequential with itself.
 #
-# One-off runs: `enqueue <repo> --loop steward` drops a job file under
-# `$CONFIG_DIR/queue/<repo>/`; each tick that repo runs its oldest queued job
-# (ahead of the drain) and removes it, so a scheduled pass is picked up at the next
-# free slot without pausing or timing anything. Not a cron — it fires once, when free.
+# Each tick a repo runs its oldest queued one-off (`enqueue <repo> …`) ahead of a
+# `--drain`; the flock means runs never overlap within a repo (a busy repo 75-skips).
 #
 # Per-run status: each real run records `$CONFIG_DIR/status/<repo>` (time, what ran,
-# ok/failed, the outcome line) so the last outcome is visible without opening a
-# transcript — and the TUI can read it without sudo.
+# ok/failed, the outcome line) — visible without opening a transcript; the TUI reads it.
 #
 # Pause: `touch $CONFIG_DIR/PAUSED` (all repos) or `$CONFIG_DIR/repos/<name>.paused`
-# (one repo). Stop entirely: `systemctl --user stop agent-watch`.
+# (one repo). Stop: `systemctl --user stop agent-watch@<repo>` (or legacy `agent-watch`).
 set -uo pipefail
 
 CONFIG_DIR="${AGENT_RUNNER_CONFIG:-$HOME/.config/agent-runner}"
 INTERVAL="${WATCH_INTERVAL:-120}"
 DISPATCH="$(cd "$(dirname "$0")" && pwd)/dispatch"
+REPO_ARG="${1:-}" # empty = serve all registry repos; set = serve only that repo
+shopt -s nullglob
 
 log() { printf '[watch %s] %s\n' "$(date -Is)" "$*"; }
 
@@ -61,7 +60,44 @@ run_repo() {
 	return "$rc"
 }
 
-log "starting; interval=${INTERVAL}s config=$CONFIG_DIR"
+# One tick for a single repo: run its oldest queued one-off (ahead of the drain) if
+# there is one, else a --drain. dispatch's flock keeps this sequential with itself.
+tick_repo() {
+	local repo="$1"
+	[ -f "$CONFIG_DIR/repos/$repo.conf" ] || {
+		log "no registry entry for $repo"
+		return
+	}
+	[ -f "$CONFIG_DIR/repos/$repo.paused" ] && return
+
+	local job="" f rc
+	for f in "$CONFIG_DIR/queue/$repo"/*; do
+		job="$f"
+		break
+	done
+	if [ -n "$job" ]; then
+		local jobargs
+		mapfile -t jobargs <"$job"
+		run_repo "$repo" "${jobargs[@]}"
+		rc=$?
+		# 75 = repo busy (a manual dispatch holds the lock): keep the job, retry next
+		# tick. Otherwise it ran (ok or a now-loud failure) — a one-off runs once.
+		if [ "$rc" -ne 75 ]; then
+			rm -f "$job"
+			[ "$rc" -ne 0 ] && log "queued ${jobargs[*]} for $repo exited $rc"
+		fi
+		return
+	fi
+
+	run_repo "$repo" --drain
+	rc=$?
+	case "$rc" in
+	0 | 75) ;; # ran / early-exited, or busy (flock) — both fine
+	*) log "dispatch $repo exited $rc" ;;
+	esac
+}
+
+log "starting; interval=${INTERVAL}s config=$CONFIG_DIR${REPO_ARG:+ repo=$REPO_ARG}"
 while true; do
 	if [ -f "$CONFIG_DIR/PAUSED" ]; then
 		log "paused (remove $CONFIG_DIR/PAUSED to resume)"
@@ -69,42 +105,13 @@ while true; do
 		continue
 	fi
 
-	shopt -s nullglob
-	for conf in "$CONFIG_DIR"/repos/*.conf; do
-		repo="$(basename "$conf" .conf)"
-		[ -f "$CONFIG_DIR/repos/$repo.paused" ] && continue
-
-		# A queued one-off (enqueue <repo> ...) takes precedence over the periodic
-		# drain, so a scheduled run (e.g. a steward pass) is picked up at the next
-		# free slot without pausing or timing anything. Oldest first (FIFO); one job
-		# per repo per tick — the drain resumes next tick.
-		job=""
-		for f in "$CONFIG_DIR/queue/$repo"/*; do
-			job="$f"
-			break
+	if [ -n "$REPO_ARG" ]; then
+		tick_repo "$REPO_ARG" # one repo — the template-unit (parallel) mode
+	else
+		for conf in "$CONFIG_DIR"/repos/*.conf; do
+			tick_repo "$(basename "$conf" .conf)" # all repos — legacy single-loop mode
 		done
-		if [ -n "$job" ]; then
-			mapfile -t jobargs <"$job"
-			run_repo "$repo" "${jobargs[@]}"
-			rc=$?
-			# 75 = repo busy (a manual dispatch holds the lock): keep the job, retry
-			# next tick. Otherwise it ran (success or a now-loud failure) — a one-off
-			# runs once, so drop it.
-			if [ "$rc" -ne 75 ]; then
-				rm -f "$job"
-				[ "$rc" -ne 0 ] && log "queued ${jobargs[*]} for $repo exited $rc"
-			fi
-			continue
-		fi
-
-		run_repo "$repo" --drain
-		rc=$?
-		case "$rc" in
-		0) ;;  # ran a drain, or early-exited because nothing was ready
-		75) ;; # a run for this repo is already active (flock) — skip
-		*) log "dispatch $repo exited $rc" ;;
-		esac
-	done
+	fi
 
 	sleep "$INTERVAL"
 done
