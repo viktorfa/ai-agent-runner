@@ -1,0 +1,149 @@
+package main
+
+// State layer: a read-only-ish view over the runner's existing operator files and
+// commands. It reads the registry, queue, pause flags, `ps`, and systemd; actions
+// only call the runner's own primitives (enqueue, the pause flag, the queue dir).
+// It never changes the runner's storage format or behaviour.
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+type repoStatus struct {
+	name     string
+	repoPath string
+	repoUser string
+	paused   bool
+	queue    []string // queued one-off jobs, oldest first (the args, e.g. "--loop steward")
+	running  bool
+}
+
+type fleet struct {
+	configDir     string
+	repos         []repoStatus
+	watcherActive bool
+}
+
+// configDir mirrors the bash control plane: $AGENT_RUNNER_CONFIG or ~/.config/agent-runner.
+func configDir() string {
+	if d := os.Getenv("AGENT_RUNNER_CONFIG"); d != "" {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "agent-runner")
+}
+
+func loadFleet() fleet {
+	cd := configDir()
+	f := fleet{configDir: cd, watcherActive: watcherActive()}
+	confs, _ := filepath.Glob(filepath.Join(cd, "repos", "*.conf"))
+	sort.Strings(confs)
+	ps := psSnapshot()
+	for _, conf := range confs {
+		name := strings.TrimSuffix(filepath.Base(conf), ".conf")
+		repoPath, repoUser := parseConf(conf)
+		f.repos = append(f.repos, repoStatus{
+			name:     name,
+			repoPath: repoPath,
+			repoUser: repoUser,
+			paused:   exists(filepath.Join(cd, "repos", name+".paused")),
+			queue:    readQueue(filepath.Join(cd, "queue", name)),
+			running:  repoPath != "" && strings.Contains(ps, "--workspace "+repoPath),
+		})
+	}
+	return f
+}
+
+// parseConf pulls REPO_PATH / REPO_USER out of a shell-sourced registry conf.
+func parseConf(path string) (repoPath, repoUser string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := confValue(line, "REPO_PATH"); ok {
+			repoPath = v
+		}
+		if v, ok := confValue(line, "REPO_USER"); ok {
+			repoUser = v
+		}
+	}
+	return repoPath, repoUser
+}
+
+func confValue(line, key string) (string, bool) {
+	if !strings.HasPrefix(line, key+"=") {
+		return "", false
+	}
+	return strings.Trim(strings.TrimPrefix(line, key+"="), "\"'"), true
+}
+
+// readQueue lists pending one-off jobs (FIFO: os.ReadDir returns names sorted).
+func readQueue(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var jobs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+		jobs = append(jobs, strings.Join(strings.Fields(string(data)), " "))
+	}
+	return jobs
+}
+
+func psSnapshot() string {
+	out, _ := exec.Command("ps", "-eo", "args").Output()
+	return string(out)
+}
+
+func watcherActive() bool {
+	out, _ := exec.Command("systemctl", "--user", "is-active", "agent-watch").Output()
+	return strings.TrimSpace(string(out)) == "active"
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// --- actions: each maps to a runner primitive, no new state ---
+
+func togglePause(cd, repo string) error {
+	p := filepath.Join(cd, "repos", repo+".paused")
+	if exists(p) {
+		return os.Remove(p)
+	}
+	return os.WriteFile(p, nil, 0o644)
+}
+
+// clearQueue cancels all pending one-off jobs for a repo (removes the queue dir;
+// enqueue recreates it, and the watcher's glob tolerates its absence).
+func clearQueue(cd, repo string) error {
+	return os.RemoveAll(filepath.Join(cd, "queue", repo))
+}
+
+// enqueue writes a one-off job file, mirroring bin/enqueue's contract exactly:
+// a FIFO-sortable UTC-timestamp+pid filename under queue/<repo>/, one arg per line
+// (the watcher reads it back with mapfile). Done directly — same as the pause/clear
+// file ops above — so the TUI is a self-contained binary with no path to bin/enqueue
+// to resolve. It writes the existing storage in the existing format; it does not
+// change the tool. (If bin/enqueue's format ever changes, keep this in step.)
+func enqueue(cd, repo string, args ...string) error {
+	dir := filepath.Join(cd, "queue", repo)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%s-%d", time.Now().UTC().Format("20060102T150405.000000000"), os.Getpid())
+	return os.WriteFile(filepath.Join(dir, name), []byte(strings.Join(args, "\n")+"\n"), 0o644)
+}
