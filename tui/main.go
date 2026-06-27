@@ -302,7 +302,7 @@ func (m model) listView() string {
 		b.WriteString("\n" + dimStyle.Render(m.message) + "\n")
 	}
 	b.WriteString("\n" + dimStyle.Render(
-		"↑/↓ move · enter/t transcript · e enqueue steward · p pause · x clear queue · r refresh · q quit"))
+		"↑/↓ move · enter/t transcript · e enqueue (pick role) · p pause · x clear queue · r refresh · q quit"))
 
 	return b.String()
 }
