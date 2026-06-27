@@ -50,24 +50,21 @@ const (
 const chromeHeight = 4 // header + footer rows reserved around the viewport
 
 type model struct {
-	fleet      fleet
-	cursor     int
-	mode       viewMode
-	vp         viewport.Model
-	vpName     string // repo whose transcript the viewport shows
-	vpUser     string
-	vpPath     string
-	roles      []string // role picker choices for the selected repo (modeEnqueue)
-	roleCursor int
-	iterations int          // chosen iteration count in the enqueue picker (default 1)
-	activity   []string     // filtered watcher-journal feed (fleet heartbeat)
-	actData    repoActivity // loaded commit history for the activity view (modeActivity)
-	actName    string
-	actUser    string
-	actPath    string
-	width      int
-	height     int
-	message    string
+	fleet       fleet
+	cursor      int
+	mode        viewMode
+	vp          viewport.Model
+	vpName      string // repo whose transcript the viewport shows
+	vpUser      string
+	vpPath      string
+	roles       []string // role picker choices for the selected repo (modeEnqueue)
+	roleCursor  int
+	iterations  int          // chosen iteration count in the enqueue picker (default 1)
+	activity    []string     // filtered watcher-journal feed (fleet heartbeat)
+	selActivity repoActivity // selected repo's commit history (main-view heatmap + the 'a' view)
+	width       int
+	height      int
+	message     string
 }
 
 const activityBuffer = 40 // feed lines to keep; the panel shows as many as fit the space
@@ -77,15 +74,28 @@ const maxIterations = 9 // upper bound for the enqueue picker; use the CLI for m
 func initialModel() model {
 	m := model{fleet: loadFleet(), vp: viewport.New()}
 	m.refreshActivity()
+	m.refreshSelActivity()
 	return m
 }
 
-// refreshActivity loads the selected repo's activity feed (its per-repo journal).
+// refreshActivity loads the selected repo's activity feed (its per-repo journal) — cheap,
+// runs on every tick.
 func (m *model) refreshActivity() {
 	if r, ok := m.selected(); ok {
 		m.activity = activityFeed(r.name, activityBuffer)
 	} else {
 		m.activity = nil
+	}
+}
+
+// refreshSelActivity loads the selected repo's commit history (the heatmap source). This
+// is a `git log` read, heavier than the journal feed, so it runs only on selection
+// change / explicit refresh — not on every tick (commits don't move every 3s).
+func (m *model) refreshSelActivity() {
+	if r, ok := m.selected(); ok {
+		m.selActivity = loadRepoActivity(r.repoUser, r.repoPath, activityDays)
+	} else {
+		m.selActivity = repoActivity{}
 	}
 }
 
@@ -145,23 +155,24 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 			m.refreshActivity()
+			m.refreshSelActivity()
 		}
 	case "down", "j":
 		if m.cursor < len(m.fleet.repos)-1 {
 			m.cursor++
 			m.refreshActivity()
+			m.refreshSelActivity()
 		}
 	case "enter", "t":
 		if r, ok := m.selected(); ok {
 			m.openTranscript(r)
 		}
 	case "a":
-		if r, ok := m.selected(); ok {
-			m.openActivity(r)
-		}
+		m.mode = modeActivity
 	case "r":
 		m.fleet = loadFleet()
 		m.refreshActivity()
+		m.refreshSelActivity()
 		m.message = "refreshed"
 	case "e":
 		if r, ok := m.selected(); ok {
@@ -268,18 +279,12 @@ func transcriptOr(content, name string) string {
 	return content
 }
 
-func (m *model) openActivity(r repoStatus) {
-	m.mode = modeActivity
-	m.actName, m.actUser, m.actPath = r.name, r.repoUser, r.repoPath
-	m.actData = loadRepoActivity(r.repoUser, r.repoPath, activityDays)
-}
-
 func (m model) updateActivity(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "a":
 		m.mode = modeList
 	case "r":
-		m.actData = loadRepoActivity(m.actUser, m.actPath, activityDays)
+		m.refreshSelActivity()
 	}
 	return m, nil
 }
@@ -331,27 +336,45 @@ func (m model) transcriptView() string {
 	return header + "\n" + m.vp.View() + "\n" + footer
 }
 
-func (m model) activityView() string {
+// heatRow renders the contribution cells for the selected repo (oldest → newest, a gap
+// between weeks).
+func (m model) heatRow() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(m.actName+" — activity") + "  " +
-		dimStyle.Render(fmt.Sprintf("(auto/work commits, last %d days)", activityDays)) + "\n\n")
-
-	// Heatmap: one cell per day (oldest → newest), a gap between weeks.
-	for i, dc := range m.actData.heatmap(activityDays, time.Now()) {
+	for i, dc := range m.selActivity.heatmap(activityDays, time.Now()) {
 		if i > 0 && i%7 == 0 {
 			b.WriteString(" ")
 		}
 		b.WriteString(heatCell(dc.count))
 	}
-	b.WriteString("\n" + dimStyle.Render("less ") +
+	return b.String()
+}
+
+// heatmapCompact is the one-glance heatmap shown at the bottom of the main view.
+func (m model) heatmapCompact() string {
+	return titleStyle.Render("commits") +
+		dimStyle.Render(fmt.Sprintf(" · last %dd (press a for timeline)", activityDays)) +
+		"\n" + m.heatRow()
+}
+
+// activityView is the full 'a' screen: heatmap + legend + recent-commit timeline.
+func (m model) activityView() string {
+	name := ""
+	if r, ok := m.selected(); ok {
+		name = r.name
+	}
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(name+" — activity") + "  " +
+		dimStyle.Render(fmt.Sprintf("(auto/work commits, last %d days)", activityDays)) + "\n\n")
+	b.WriteString(m.heatRow() + "\n")
+	b.WriteString(dimStyle.Render("less ") +
 		heatCell(0) + heatCell(1) + heatCell(3) + heatCell(6) + heatCell(10) +
 		dimStyle.Render(" more") + "\n\n")
 
 	b.WriteString(titleStyle.Render("recent") + "\n")
-	if len(m.actData.commits) == 0 {
+	if len(m.selActivity.commits) == 0 {
 		b.WriteString(dimStyle.Render("(no commits on the work branch in this window)") + "\n")
 	}
-	for i, c := range m.actData.commits {
+	for i, c := range m.selActivity.commits {
 		if i >= activityTimelineN {
 			break
 		}
@@ -493,11 +516,13 @@ func (m model) listView() string {
 		top = m.repoListColumn() + "\n\n" + m.detailColumn()
 	}
 
-	// Header, panes, legend right under the panes, then the activity log fills the rest
-	// of the screen (bounded, so it never overflows).
-	overhead := lipgloss.Height(header) + lipgloss.Height(top) + 5 // blanks + legend + title
+	// Header, panes, legend (right under the panes), the activity log filling the
+	// middle, then the commit heatmap pinned at the bottom.
+	heat := m.heatmapCompact()
+	overhead := lipgloss.Height(header) + lipgloss.Height(top) + lipgloss.Height(heat) + 7
 	activityLines := clamp(m.height-overhead, 1, activityBuffer)
-	return header + "\n\n" + top + "\n" + footer + "\n\n" + m.activityPanel(activityLines)
+	return header + "\n\n" + top + "\n" + footer + "\n\n" +
+		m.activityPanel(activityLines) + "\n\n" + heat
 }
 
 func tags(r repoStatus) []string {

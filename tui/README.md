@@ -4,8 +4,9 @@ An operator dashboard for the runner — see every repo's status (running drain,
 queued one-offs, paused, watcher state) and fire the common actions, in one screen.
 
 Layout: the repo **list** and the selected repo's **detail** sit side by side, with a
-filtered **activity** feed below — the *selected* repo's watcher journal heartbeat; it
-falls back to a stacked layout on narrow terminals. Watcher status is **per repo**
+filtered **activity** feed below — the *selected* repo's watcher journal heartbeat —
+and a compact commits-per-day **heatmap** pinned at the bottom; it falls back to a
+stacked layout on narrow terminals. Watcher status is **per repo**
 (each repo has its own `agent-watch@<repo>` unit), shown in the header count and as a
 `⚠ watcher off` tag; it also recognises the legacy single watcher during migration.
 
@@ -51,7 +52,7 @@ rest of the control plane.
 |-----|--------|
 | `↑`/`↓` (`k`/`j`) | move between repos |
 | `enter` / `t` | open the selected repo's live transcript (latest loop log, follows the tail); `esc`/`q` to go back |
-| `a` | open the selected repo's **activity** view — a commits-per-day heatmap + a recent `auto/work` timeline (work that landed); `r` refresh, `esc`/`q` back |
+| `a` | full **activity** view — the heatmap (also shown at the bottom of the main view) plus a recent `auto/work` commit timeline; `r` refresh, `esc`/`q` back |
 | `e` | enqueue a one-off run — pick the role (`↑/↓`, from those the repo defines in `.agent/config.json`) and iteration count (`←/→`, default 1); `enter` queues, `esc` cancels. Writes the same queue file as `bin/enqueue` |
 | `p` | toggle the repo's watcher pause flag |
 | `x` | clear the repo's pending one-off queue |
