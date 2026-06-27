@@ -16,12 +16,13 @@ import (
 )
 
 type repoStatus struct {
-	name     string
-	repoPath string
-	repoUser string
-	paused   bool
-	queue    []string // queued one-off jobs, oldest first (the args, e.g. "--loop steward")
-	running  bool
+	name        string
+	repoPath    string
+	repoUser    string
+	paused      bool
+	queue       []string // queued one-off jobs, oldest first (the args, e.g. "--loop steward")
+	running     bool
+	lastOutcome string // last drain outcome parsed from the newest transcript, if readable
 }
 
 type fleet struct {
@@ -55,6 +56,9 @@ func loadFleet() fleet {
 			paused:   exists(filepath.Join(cd, "repos", name+".paused")),
 			queue:    readQueue(filepath.Join(cd, "queue", name)),
 			running:  repoPath != "" && strings.Contains(ps, "--workspace "+repoPath),
+			// Cheap tail just to extract the outcome line; the transcript viewer
+			// reads more on demand.
+			lastOutcome: parseOutcome(transcriptTail(repoUser, repoPath, 80)),
 		})
 	}
 	return f
@@ -128,6 +132,41 @@ func watcherActive() bool {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// transcriptTail returns the last n lines of a repo's newest loop transcript,
+// prefixed with the file path. Transcripts are owned by the repo's agent user, so
+// we read them through the existing passwordless `sudo -u <user>` path (read-only).
+// Returns "" if there's no transcript, no repo user/path, or sudo can't run
+// non-interactively — all non-fatal for a dashboard.
+func transcriptTail(repoUser, repoPath string, n int) string {
+	if repoUser == "" || repoPath == "" {
+		return ""
+	}
+	script := fmt.Sprintf(
+		`f=$(ls -t %q/loop/*.log 2>/dev/null | head -1); [ -n "$f" ] || exit 0; `+
+			`printf '%%s\n' "$f"; tail -n %d "$f" 2>/dev/null`,
+		repoPath, n)
+	out, _ := exec.Command("sudo", "-n", "-u", repoUser, "bash", "-c", script).Output()
+	return string(out)
+}
+
+// parseOutcome finds the most recent run-outcome marker in a transcript tail.
+func parseOutcome(transcript string) string {
+	lines := strings.Split(transcript, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		switch {
+		case strings.HasPrefix(l, "Done:"),
+			strings.HasPrefix(l, "drain stalled"),
+			strings.HasPrefix(l, "agent failed"),
+			strings.Contains(l, "board read failed"):
+			return l
+		case strings.Contains(l, "no ready tasks"):
+			return "no ready tasks"
+		}
+	}
+	return ""
 }
 
 // --- actions: each maps to a runner primitive, no new state ---

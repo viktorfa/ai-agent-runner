@@ -3,6 +3,7 @@ module github.com/viktorfa/ai-agent-runner/tui
 go 1.26.3
 
 require (
+	charm.land/bubbles/v2 v2.1.0 // indirect
 	charm.land/bubbletea/v2 v2.0.7 // indirect
 	charm.land/lipgloss/v2 v2.0.4 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect

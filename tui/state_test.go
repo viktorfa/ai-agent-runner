@@ -110,3 +110,19 @@ func TestEnqueueRoundTrips(t *testing.T) {
 		t.Errorf("after enqueue, readQueue = %v; want [\"--loop steward\"]", got)
 	}
 }
+
+func TestParseOutcome(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"# /x/loop/a.log\nfetching origin\n\nDone: 2 iteration(s), ok.", "Done: 2 iteration(s), ok."},
+		{"no ready tasks — nothing to drain\n\nDone: 0 iteration(s), ok.", "Done: 0 iteration(s), ok."},
+		{"merging\nno ready tasks — nothing to drain", "no ready tasks"},
+		{"{\"type\":\"x\"}\ndrain stalled: 2 iterations cleared no task — parked TASK-5", "drain stalled: 2 iterations cleared no task — parked TASK-5"},
+		{"", ""},
+		{"just logs\nnothing notable here", ""},
+	}
+	for _, c := range cases {
+		if got := parseOutcome(c.in); got != c.want {
+			t.Errorf("parseOutcome(%q) = %q; want %q", c.in, got, c.want)
+		}
+	}
+}

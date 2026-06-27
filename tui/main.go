@@ -1,7 +1,8 @@
 // agent-runner TUI — an operator dashboard over the runner's existing files and
-// commands. Read-only view of the registry, queue, pause flags, running drains and
-// the watcher; actions only call the runner's own primitives. It changes nothing
-// about the runner's functionality, state, or storage.
+// commands. Read-only view of the registry, queue, pause flags, running drains, the
+// watcher, and (on demand) live transcripts; actions only write the same files the
+// control plane does. It changes nothing about the runner's functionality, state, or
+// storage.
 package main
 
 import (
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -31,14 +33,30 @@ var (
 	infoStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 )
 
+type viewMode int
+
+const (
+	modeList viewMode = iota
+	modeTranscript
+)
+
+const chromeHeight = 4 // header + footer rows reserved around the viewport
+
 type model struct {
 	fleet   fleet
 	cursor  int
+	mode    viewMode
+	vp      viewport.Model
+	vpName  string // repo whose transcript the viewport shows
+	vpUser  string
+	vpPath  string
+	width   int
+	height  int
 	message string
 }
 
 func initialModel() model {
-	return model{fleet: loadFleet()}
+	return model{fleet: loadFleet(), vp: viewport.New()}
 }
 
 func (m model) Init() tea.Cmd {
@@ -54,42 +72,79 @@ func (m model) selected() (repoStatus, bool) {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		m.vp.SetWidth(msg.Width)
+		m.vp.SetHeight(max(1, msg.Height-chromeHeight))
+		return m, nil
 	case tickMsg:
-		m.fleet = loadFleet()
+		if m.mode == modeTranscript {
+			m.refreshTranscript() // one sudo read for the viewed repo only
+		} else {
+			m.fleet = loadFleet()
+		}
 		return m, tick()
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(m.fleet.repos)-1 {
-				m.cursor++
-			}
-		case "r":
-			m.fleet = loadFleet()
-			m.message = "refreshed"
-		case "e":
-			if r, ok := m.selected(); ok {
-				m.act("queued steward for "+r.name, enqueue(m.fleet.configDir, r.name, "--loop", "steward"))
-			}
-		case "p":
-			if r, ok := m.selected(); ok {
-				m.act("toggled pause for "+r.name, togglePause(m.fleet.configDir, r.name))
-			}
-		case "x":
-			if r, ok := m.selected(); ok {
-				m.act("cleared queue for "+r.name, clearQueue(m.fleet.configDir, r.name))
-			}
+		if m.mode == modeTranscript {
+			return m.updateTranscript(msg)
+		}
+		return m.updateList(msg)
+	}
+	if m.mode == modeTranscript {
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < len(m.fleet.repos)-1 {
+			m.cursor++
+		}
+	case "enter", "t":
+		if r, ok := m.selected(); ok {
+			m.openTranscript(r)
+		}
+	case "r":
+		m.fleet = loadFleet()
+		m.message = "refreshed"
+	case "e":
+		if r, ok := m.selected(); ok {
+			m.act("queued steward for "+r.name, enqueue(m.fleet.configDir, r.name, "--loop", "steward"))
+		}
+	case "p":
+		if r, ok := m.selected(); ok {
+			m.act("toggled pause for "+r.name, togglePause(m.fleet.configDir, r.name))
+		}
+	case "x":
+		if r, ok := m.selected(); ok {
+			m.act("cleared queue for "+r.name, clearQueue(m.fleet.configDir, r.name))
 		}
 	}
 	return m, nil
 }
 
-// act records the outcome of an action and refreshes the fleet view.
+func (m model) updateTranscript(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "esc", "backspace":
+		m.mode = modeList
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.vp, cmd = m.vp.Update(msg) // scroll keys: ↑/↓, pgup/pgdn, etc.
+	return m, cmd
+}
+
+// act records an action's outcome and refreshes the fleet view.
 func (m *model) act(ok string, err error) {
 	if err != nil {
 		m.message = "error: " + err.Error()
@@ -99,7 +154,52 @@ func (m *model) act(ok string, err error) {
 	m.fleet = loadFleet()
 }
 
+func (m *model) openTranscript(r repoStatus) {
+	m.mode = modeTranscript
+	m.vpName, m.vpUser, m.vpPath = r.name, r.repoUser, r.repoPath
+	m.vp.SetContent(transcriptOr(transcriptTail(r.repoUser, r.repoPath, 500), r.name))
+	m.vp.GotoBottom()
+}
+
+// refreshTranscript re-reads the viewed transcript, following the tail only if the
+// user is already at the bottom (so scrolling back up isn't yanked away).
+func (m *model) refreshTranscript() {
+	atBottom := m.vp.AtBottom()
+	content := transcriptTail(m.vpUser, m.vpPath, 500)
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	m.vp.SetContent(content)
+	if atBottom {
+		m.vp.GotoBottom()
+	}
+}
+
+func transcriptOr(content, name string) string {
+	if strings.TrimSpace(content) == "" {
+		return "(no transcript yet for " + name + ")"
+	}
+	return content
+}
+
 func (m model) View() tea.View {
+	content := m.listView()
+	if m.mode == modeTranscript {
+		content = m.transcriptView()
+	}
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
+}
+
+func (m model) transcriptView() string {
+	header := titleStyle.Render(m.vpName+" — transcript") + "  " +
+		dimStyle.Render("(latest loop log, follows the tail)")
+	footer := dimStyle.Render("↑/↓ pgup/pgdn scroll · esc/q back · refreshes every 3s")
+	return header + "\n" + m.vp.View() + "\n" + footer
+}
+
+func (m model) listView() string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("agent-runner") + "   ")
@@ -128,6 +228,9 @@ func (m model) View() tea.View {
 		b.WriteString(dimStyle.Render("path:  ") + orDash(r.repoPath) + "\n")
 		b.WriteString(dimStyle.Render("user:  ") + orDash(r.repoUser) + "\n")
 		b.WriteString(dimStyle.Render("state: ") + stateLabel(r) + "\n")
+		if r.lastOutcome != "" {
+			b.WriteString(dimStyle.Render("last:  ") + r.lastOutcome + "\n")
+		}
 		if len(r.queue) > 0 {
 			b.WriteString(dimStyle.Render("queue:") + "\n")
 			for _, j := range r.queue {
@@ -140,11 +243,9 @@ func (m model) View() tea.View {
 		b.WriteString("\n" + dimStyle.Render(m.message) + "\n")
 	}
 	b.WriteString("\n" + dimStyle.Render(
-		"↑/↓ move · e enqueue steward · p toggle pause · x clear queue · r refresh · q quit"))
+		"↑/↓ move · enter/t transcript · e enqueue steward · p pause · x clear queue · r refresh · q quit"))
 
-	v := tea.NewView(b.String())
-	v.AltScreen = true // v2 controls the alt screen via the View, not a program option
-	return v
+	return b.String()
 }
 
 func tags(r repoStatus) []string {
@@ -180,8 +281,7 @@ func orDash(s string) string {
 }
 
 func main() {
-	p := tea.NewProgram(initialModel())
-	if _, err := p.Run(); err != nil {
+	if _, err := tea.NewProgram(initialModel()).Run(); err != nil {
 		fmt.Println("tui error:", err)
 	}
 }

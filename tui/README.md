@@ -5,10 +5,12 @@ queued one-offs, paused, watcher state) and fire the common actions, in one scre
 
 It is a **pure frontend**: it reads the runner's existing operator files
 (`~/.config/agent-runner/{repos,queue}`, the `.paused` flags), `ps`, and
-`systemctl --user`, and acts only by writing those same files the same way the
-control plane does (drop a queue file = `bin/enqueue`; touch/remove the pause flag;
-remove the queue dir). It changes **nothing** about the runner's functionality,
-state, or storage format — remove the TUI and the runner is unaffected.
+`systemctl --user`, plus the agent-owned loop transcripts (read-only, via the
+existing passwordless `sudo -u <repo-user>` path). It acts only by writing those same
+operator files the same way the control plane does (drop a queue file = `bin/enqueue`;
+touch/remove the pause flag; remove the queue dir). It changes **nothing** about the
+runner's functionality, state, or storage format — remove the TUI and the runner is
+unaffected.
 
 Separate Go module (Bubble Tea v2) so it stays isolated from the TS core and the
 bash control plane.
@@ -40,6 +42,7 @@ rest of the control plane.
 | key | action |
 |-----|--------|
 | `↑`/`↓` (`k`/`j`) | move between repos |
+| `enter` / `t` | open the selected repo's live transcript (latest loop log, follows the tail); `esc`/`q` to go back |
 | `e` | enqueue a one-off `steward` run (same queue file as `bin/enqueue <repo> --loop steward`) |
 | `p` | toggle the repo's watcher pause flag |
 | `x` | clear the repo's pending one-off queue |
