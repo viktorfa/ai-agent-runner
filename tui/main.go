@@ -70,7 +70,7 @@ type model struct {
 	message    string
 }
 
-const activityBuffer = 20 // how many feed lines to keep; the view shows what fits
+const activityBuffer = 40 // feed lines to keep; the panel shows as many as fit the space
 
 const maxIterations = 9 // upper bound for the enqueue picker; use the CLI for more
 
@@ -479,23 +479,25 @@ func (m model) listView() string {
 		return out + "\n\n" + footer
 	}
 
-	activityH := clamp(m.height/3, 4, 10)
-	topH := max(3, m.height-lipgloss.Height(header)-activityH-4)
-
+	// list | detail at their NATURAL height, so the legend sits directly beneath the
+	// panes. Columns clip only if a long list would push the chrome off-screen.
 	var top string
 	if m.width >= 70 { // wide enough to split; otherwise stack
 		lw := clamp(m.width/3, 24, 40)
-		left := lipgloss.NewStyle().Width(lw).Height(topH).MaxHeight(topH).Render(m.repoListColumn())
-		right := lipgloss.NewStyle().Width(m.width - lw).Height(topH).MaxHeight(topH).
-			PaddingLeft(2).Render(m.detailColumn())
+		colH := max(3, m.height-6)
+		left := lipgloss.NewStyle().Width(lw).MaxHeight(colH).Render(m.repoListColumn())
+		right := lipgloss.NewStyle().Width(m.width - lw).PaddingLeft(2).MaxHeight(colH).
+			Render(m.detailColumn())
 		top = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	} else {
 		top = m.repoListColumn() + "\n\n" + m.detailColumn()
 	}
 
-	// Legend sits directly under the list/detail it describes; the activity log is the
-	// bottom panel.
-	return header + "\n" + top + "\n" + footer + "\n" + m.activityPanel(activityH-1)
+	// Header, panes, legend right under the panes, then the activity log fills the rest
+	// of the screen (bounded, so it never overflows).
+	overhead := lipgloss.Height(header) + lipgloss.Height(top) + 5 // blanks + legend + title
+	activityLines := clamp(m.height-overhead, 1, activityBuffer)
+	return header + "\n\n" + top + "\n" + footer + "\n\n" + m.activityPanel(activityLines)
 }
 
 func tags(r repoStatus) []string {
