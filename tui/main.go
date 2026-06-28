@@ -43,8 +43,9 @@ const (
 )
 
 const (
-	activityDays      = 28 // heatmap window
+	activityHours     = 48 // heatmap window (hourly buckets)
 	activityTimelineN = 15 // commits shown in the timeline
+	heatGroup         = 6  // visual gap every N hourly cells
 )
 
 const chromeHeight = 4 // header + footer rows reserved around the viewport
@@ -93,7 +94,7 @@ func (m *model) refreshActivity() {
 // change / explicit refresh — not on every tick (commits don't move every 3s).
 func (m *model) refreshSelActivity() {
 	if r, ok := m.selected(); ok {
-		m.selActivity = loadRepoActivity(r.repoUser, r.repoPath, activityDays)
+		m.selActivity = loadRepoActivity(r.repoUser, r.repoPath, activityHours)
 	} else {
 		m.selActivity = repoActivity{}
 	}
@@ -340,8 +341,8 @@ func (m model) transcriptView() string {
 // between weeks).
 func (m model) heatRow() string {
 	var b strings.Builder
-	for i, dc := range m.selActivity.heatmap(activityDays, time.Now()) {
-		if i > 0 && i%7 == 0 {
+	for i, dc := range m.selActivity.heatmap(activityHours, time.Now()) {
+		if i > 0 && i%heatGroup == 0 {
 			b.WriteString(" ")
 		}
 		b.WriteString(heatCell(dc.count))
@@ -352,7 +353,7 @@ func (m model) heatRow() string {
 // heatmapCompact is the one-glance heatmap shown at the bottom of the main view.
 func (m model) heatmapCompact() string {
 	return titleStyle.Render("commits") +
-		dimStyle.Render(fmt.Sprintf(" · last %dd (press a for timeline)", activityDays)) +
+		dimStyle.Render(fmt.Sprintf(" · last %dh (press a for timeline)", activityHours)) +
 		"\n" + m.heatRow()
 }
 
@@ -364,7 +365,7 @@ func (m model) activityView() string {
 	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(name+" — activity") + "  " +
-		dimStyle.Render(fmt.Sprintf("(auto/work commits, last %d days)", activityDays)) + "\n\n")
+		dimStyle.Render(fmt.Sprintf("(auto/work commits, last %d hours)", activityHours)) + "\n\n")
 	b.WriteString(m.heatRow() + "\n")
 	b.WriteString(dimStyle.Render("less ") +
 		heatCell(0) + heatCell(1) + heatCell(3) + heatCell(6) + heatCell(10) +

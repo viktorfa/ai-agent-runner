@@ -5,8 +5,8 @@ queued one-offs, paused, watcher state) and fire the common actions, in one scre
 
 Layout: the repo **list** and the selected repo's **detail** sit side by side, with a
 filtered **activity** feed below — the *selected* repo's watcher journal heartbeat —
-and a compact commits-per-day **heatmap** pinned at the bottom; it falls back to a
-stacked layout on narrow terminals. Watcher status is **per repo**
+and a compact **heatmap** of commits-per-hour over the last 48h pinned at the bottom;
+it falls back to a stacked layout on narrow terminals. Watcher status is **per repo**
 (each repo has its own `agent-watch@<repo>` unit), shown in the header count and as a
 `⚠ watcher off` tag; it also recognises the legacy single watcher during migration.
 

@@ -117,28 +117,28 @@ func TestEnqueueRoundTrips(t *testing.T) {
 }
 
 func TestParseActivityLogAndHeatmap(t *testing.T) {
-	out := "2026-06-28T10:00:00+00:00\tfix: a\n" +
-		"2026-06-28T11:00:00+00:00\tchore: b\n" +
-		"2026-06-27T09:00:00+00:00\tfeat: c\n" +
+	out := "2026-06-28T10:30:00+00:00\tfix: a\n" +
+		"2026-06-28T10:45:00+00:00\tchore: b\n" +
+		"2026-06-28T09:15:00+00:00\tfeat: c\n" +
 		"malformed line without a tab\n"
 	commits := parseActivityLog(out)
 	if len(commits) != 3 {
 		t.Fatalf("parseActivityLog got %d commits; want 3 (malformed line dropped)", len(commits))
 	}
-	if commits[0].subject != "fix: a" || commits[0].date != "2026-06-28" {
+	if commits[0].subject != "fix: a" {
 		t.Errorf("commit[0] = %+v", commits[0])
 	}
 
-	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
-	cells := (repoActivity{commits: commits}).heatmap(3, now) // 06-26, 06-27, 06-28
+	now := time.Date(2026, 6, 28, 10, 30, 0, 0, time.UTC)
+	cells := (repoActivity{commits: commits}).heatmap(3, now) // hourly: 08, 09, 10 (oldest first)
 	if len(cells) != 3 {
 		t.Fatalf("heatmap got %d cells; want 3", len(cells))
 	}
-	if cells[0].date != "2026-06-26" || cells[0].count != 0 {
-		t.Errorf("cells[0] = %+v; want {2026-06-26 0}", cells[0])
+	if cells[2].key != "2026-06-28T10" {
+		t.Errorf("cells[2].key = %q; want 2026-06-28T10", cells[2].key)
 	}
-	if cells[1].count != 1 || cells[2].count != 2 {
-		t.Errorf("counts = %d,%d; want 1,2", cells[1].count, cells[2].count)
+	if cells[0].count != 0 || cells[1].count != 1 || cells[2].count != 2 {
+		t.Errorf("counts = %d,%d,%d; want 0,1,2", cells[0].count, cells[1].count, cells[2].count)
 	}
 }
 

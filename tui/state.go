@@ -189,7 +189,6 @@ func activityFeed(repo string, maxLines int) []string {
 
 type commitEntry struct {
 	when    time.Time
-	date    string // YYYY-MM-DD (committer-local)
 	subject string
 }
 
@@ -201,13 +200,13 @@ type repoActivity struct {
 // committer date + subject) via the existing sudo path, read-only — the commits are
 // the record of work that landed. On-demand (when the activity view opens), not on the
 // refresh tick.
-func loadRepoActivity(repoUser, repoPath string, days int) repoActivity {
+func loadRepoActivity(repoUser, repoPath string, hours int) repoActivity {
 	if repoUser == "" || repoPath == "" {
 		return repoActivity{}
 	}
 	out, err := exec.Command("sudo", "-n", "-u", repoUser,
 		"git", "-C", repoPath, "log",
-		"--since="+fmt.Sprintf("%d days ago", days), "-n", "500",
+		"--since="+fmt.Sprintf("%d hours ago", hours), "-n", "500",
 		"--format=%cI%x09%s").Output()
 	if err != nil {
 		return repoActivity{}
@@ -227,27 +226,27 @@ func parseActivityLog(out string) []commitEntry {
 		if err != nil {
 			continue
 		}
-		commits = append(commits, commitEntry{when: t, date: iso[:10], subject: subject})
+		commits = append(commits, commitEntry{when: t, subject: subject})
 	}
 	return commits
 }
 
-type dayCount struct {
-	date  string
+type heatBucket struct {
+	key   string // hour key, "2006-01-02T15"
 	count int
 }
 
-// heatmap buckets commits into the last `days` calendar days ending at `now` (oldest
-// first), for a GitHub-style contribution row.
-func (a repoActivity) heatmap(days int, now time.Time) []dayCount {
-	byDay := map[string]int{}
+// heatmap buckets commits into the last `hours` hourly slots ending at `now` (oldest
+// first), for a recent-activity strip.
+func (a repoActivity) heatmap(hours int, now time.Time) []heatBucket {
+	byHour := map[string]int{}
 	for _, c := range a.commits {
-		byDay[c.date]++
+		byHour[c.when.Format("2006-01-02T15")]++
 	}
-	cells := make([]dayCount, 0, days)
-	for i := days - 1; i >= 0; i-- {
-		d := now.AddDate(0, 0, -i).Format("2006-01-02")
-		cells = append(cells, dayCount{date: d, count: byDay[d]})
+	cells := make([]heatBucket, 0, hours)
+	for i := hours - 1; i >= 0; i-- {
+		key := now.Add(time.Duration(-i) * time.Hour).Format("2006-01-02T15")
+		cells = append(cells, heatBucket{key: key, count: byHour[key]})
 	}
 	return cells
 }
