@@ -12,10 +12,10 @@ it falls back to a stacked layout on narrow terminals. Watcher status is **per r
 
 It is a **pure frontend**: it reads the runner's existing operator files
 (`~/.config/agent-runner/{repos,queue,status}`, the `.paused` flags), `ps`,
-`systemctl --user is-active`, and the watcher journals (`journalctl --user`) — no sudo. Only the
-on-demand transcript viewer (and the role picker, which reads a repo's config) touch
-the agent-owned workspace, via the existing passwordless `sudo -u <repo-user>` path,
-read-only. It acts only by writing those same
+`systemctl --user is-active`, and the watcher journals (`journalctl --user`, which is
+also where the transcript viewer reads from) — no sudo. Only the commit heatmap and the
+role picker read the agent-owned workspace (`git log` / `.agent/config.json`), via the
+existing passwordless `sudo -u <repo-user>` path, read-only. It acts only by writing those same
 operator files the way the control plane does (drop a queue file = `bin/enqueue`;
 touch/remove the pause flag; remove the queue dir). It changes **nothing** about the
 runner's functionality, state, or storage format — remove the TUI and the runner is
@@ -51,7 +51,7 @@ rest of the control plane.
 | key | action |
 |-----|--------|
 | `↑`/`↓` (`k`/`j`) | move between repos |
-| `enter` / `t` | open the selected repo's live transcript (latest loop log, follows the tail); `esc`/`q` to go back |
+| `enter` / `t` | open the selected repo's **transcript** — timestamped & readable (codex JSON rendered to `$ cmd ✓` / `💬 message` lines), follows the tail; `esc`/`q` to go back |
 | `a` | full **activity** view — the heatmap (also shown at the bottom of the main view) plus a recent `auto/work` commit timeline; `r` refresh, `esc`/`q` back |
 | `e` | enqueue a one-off run — pick the role (`↑/↓`, from those the repo defines in `.agent/config.json`) and iteration count (`←/→`, default 1); `enter` queues, `esc` cancels. Writes the same queue file as `bin/enqueue` |
 | `p` | toggle the repo's watcher pause flag |

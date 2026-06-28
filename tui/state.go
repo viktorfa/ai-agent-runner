@@ -256,21 +256,16 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// transcriptTail returns the last n lines of a repo's newest loop transcript,
-// prefixed with the file path. Transcripts are owned by the repo's agent user, so
-// we read them through the existing passwordless `sudo -u <user>` path (read-only).
-// Returns "" if there's no transcript, no repo user/path, or sudo can't run
-// non-interactively — all non-fatal for a dashboard.
-func transcriptTail(repoUser, repoPath string, n int) string {
-	if repoUser == "" || repoPath == "" {
+// transcriptJournal returns the last n watcher-journal lines for a repo, with ISO
+// timestamps, prettified into a readable transcript (see renderTranscript). Read from
+// the operator's own user journal (`journalctl --user`) — no sudo. "" on error.
+func transcriptJournal(repo string, n int) string {
+	out, err := exec.Command("journalctl", "--user", "-u", "agent-watch@"+repo,
+		"-n", fmt.Sprintf("%d", n), "--no-pager", "-o", "short-iso").Output()
+	if err != nil {
 		return ""
 	}
-	script := fmt.Sprintf(
-		`f=$(ls -t %q/loop/*.log 2>/dev/null | head -1); [ -n "$f" ] || exit 0; `+
-			`printf '%%s\n' "$f"; tail -n %d "$f" 2>/dev/null`,
-		repoPath, n)
-	out, _ := exec.Command("sudo", "-n", "-u", repoUser, "bash", "-c", script).Output()
-	return string(out)
+	return renderTranscript(string(out))
 }
 
 // defaultRoles are offered when a repo's .agent/config.json can't be read; they are

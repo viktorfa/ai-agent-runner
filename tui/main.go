@@ -55,9 +55,7 @@ type model struct {
 	cursor      int
 	mode        viewMode
 	vp          viewport.Model
-	vpName      string // repo whose transcript the viewport shows
-	vpUser      string
-	vpPath      string
+	vpName      string   // repo whose transcript the viewport shows
 	roles       []string // role picker choices for the selected repo (modeEnqueue)
 	roleCursor  int
 	iterations  int          // chosen iteration count in the enqueue picker (default 1)
@@ -71,6 +69,8 @@ type model struct {
 const activityBuffer = 40 // feed lines to keep; the panel shows as many as fit the space
 
 const maxIterations = 9 // upper bound for the enqueue picker; use the CLI for more
+
+const transcriptLines = 600 // journal lines to read for the transcript viewer
 
 func initialModel() model {
 	m := model{fleet: loadFleet(), vp: viewport.New()}
@@ -121,7 +121,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		switch m.mode {
 		case modeTranscript:
-			m.refreshTranscript() // one sudo read for the viewed repo only
+			m.refreshTranscript() // re-read the viewed repo's journal (no sudo)
 		case modeList:
 			m.fleet = loadFleet()
 			m.refreshActivity()
@@ -254,8 +254,8 @@ func (m *model) act(ok string, err error) {
 
 func (m *model) openTranscript(r repoStatus) {
 	m.mode = modeTranscript
-	m.vpName, m.vpUser, m.vpPath = r.name, r.repoUser, r.repoPath
-	m.vp.SetContent(transcriptOr(transcriptTail(r.repoUser, r.repoPath, 500), r.name))
+	m.vpName = r.name
+	m.vp.SetContent(transcriptOr(transcriptJournal(r.name, transcriptLines), r.name))
 	m.vp.GotoBottom()
 }
 
@@ -263,7 +263,7 @@ func (m *model) openTranscript(r repoStatus) {
 // user is already at the bottom (so scrolling back up isn't yanked away).
 func (m *model) refreshTranscript() {
 	atBottom := m.vp.AtBottom()
-	content := transcriptTail(m.vpUser, m.vpPath, 500)
+	content := transcriptJournal(m.vpName, transcriptLines)
 	if strings.TrimSpace(content) == "" {
 		return
 	}
@@ -332,7 +332,7 @@ func (m model) enqueueView() string {
 
 func (m model) transcriptView() string {
 	header := titleStyle.Render(m.vpName+" — transcript") + "  " +
-		dimStyle.Render("(latest loop log, follows the tail)")
+		dimStyle.Render("(timestamped, follows the tail)")
 	footer := dimStyle.Render("↑/↓ pgup/pgdn scroll · esc/q back · refreshes every 3s")
 	return header + "\n" + m.vp.View() + "\n" + footer
 }
