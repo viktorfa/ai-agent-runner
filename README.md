@@ -75,6 +75,13 @@ machine binding (path/user/proxy); `role` is per-dispatch (default `dev`).
 per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge base in,
 stack tasks — merge to base periodically), chosen per repo.
 
+**Idle watchdog** (`.agent/config.json` → `agentIdleTimeoutSec`, default `480`): if
+the agent produces no output for this long it's killed (process group and all), so a
+hung assistant — e.g. codex stuck retrying a stalled API stream — can't wedge a drain
+indefinitely. A killed agent emits no `turn.completed`, so it flows into the normal
+agent-failure handling. The default sits well above a healthy run's longest quiet gap
+(~70s observed); raise it for a repo whose hooks run very long, silent commands.
+
 **Operation** is normally via the control plane, not these commands directly:
 `bin/dispatch <repo> [opts]` (run now, drops to the repo's user), `bin/enqueue <repo>
 [opts]` (queue a one-off the watcher picks up at the next free slot), and a per-repo

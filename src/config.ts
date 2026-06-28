@@ -31,6 +31,15 @@ export interface AgentConfig {
 	prompts: Record<LoopRole, string>
 	/** Repo-specific lifecycle hooks (workspace-relative). */
 	hooks: { devServer: string; preview: string; audit: string }
+	/**
+	 * Kill the agent if it produces no output for this many seconds — a backstop
+	 * against a hung assistant (e.g. codex stuck retrying a stalled API stream).
+	 * A killed agent emits no `turn.completed`, so it flows into the normal
+	 * agent-failure handling. Sized well above a healthy run's longest quiet gap
+	 * (~70s observed across a 33-min iteration); raise it for a repo whose hooks
+	 * run very long, silent commands.
+	 */
+	agentIdleTimeoutSec: number
 }
 
 export function defaultConfig(): AgentConfig {
@@ -49,6 +58,7 @@ export function defaultConfig(): AgentConfig {
 			preview: '.agent/hooks/qa-preview.sh',
 			audit: '.agent/hooks/3d-audit.sh',
 		},
+		agentIdleTimeoutSec: 480,
 	}
 }
 
@@ -63,6 +73,7 @@ export function resolveConfig(partial: Partial<AgentConfig>): AgentConfig {
 		setup: partial.setup ?? d.setup,
 		prompts: { ...d.prompts, ...partial.prompts },
 		hooks: { ...d.hooks, ...partial.hooks },
+		agentIdleTimeoutSec: partial.agentIdleTimeoutSec ?? d.agentIdleTimeoutSec,
 		...(partial.model !== undefined ? { model: partial.model } : {}),
 		...(partial.effort !== undefined ? { effort: partial.effort } : {}),
 	}

@@ -19,19 +19,58 @@ interface ExecOpts {
 	stdin?: string
 	/** Capture only — don't echo to this process's stdout/stderr or the sink. */
 	quiet?: boolean
+	/**
+	 * If set, kill the child (and its whole process group) after this many ms with
+	 * no stdout/stderr — a watchdog for a hung agent. Resolves with code 124, the
+	 * conventional timeout code. Spawns the child detached so the group kill reaches
+	 * grandchildren (codex spawns its own subprocesses).
+	 */
+	idleTimeoutMs?: number
 }
+
+/** Conventional exit code for a process killed by a timeout. */
+const TIMEOUT_CODE = 124
 
 /** Spawn a command; capture stdout while (unless quiet) echoing + teeing it. */
 function exec(
 	cmd: string,
 	args: string[],
 	cwd: string,
-	{ sink, stdin, quiet }: ExecOpts = {},
+	{ sink, stdin, quiet, idleTimeoutMs }: ExecOpts = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(cmd, args, { cwd })
+		const watched = idleTimeoutMs !== undefined
+		const child = spawn(cmd, args, { cwd, detached: watched })
 		let stdout = ''
 		let stderr = ''
+		let timedOut = false
+		let idle: ReturnType<typeof setTimeout> | undefined
+		let hardKill: ReturnType<typeof setTimeout> | undefined
+
+		// Signal the child's process group (it leads its own, being detached), so a
+		// hung agent's subprocesses die with it rather than orphaning.
+		const killGroup = (signal: NodeJS.Signals) => {
+			if (child.pid === undefined) return
+			try {
+				process.kill(-child.pid, signal)
+			} catch {
+				// Already gone between the timer firing and the kill — nothing to do.
+			}
+		}
+		const resetIdle = () => {
+			if (!watched) return
+			clearTimeout(idle)
+			idle = setTimeout(() => {
+				timedOut = true
+				const secs = Math.round((idleTimeoutMs ?? 0) / 1000)
+				const note = `\n[runner] agent produced no output for ${secs}s — killing\n`
+				process.stderr.write(note)
+				sink?.(note)
+				killGroup('SIGTERM')
+				hardKill = setTimeout(() => killGroup('SIGKILL'), 5000)
+			}, idleTimeoutMs)
+		}
+
 		child.stdout?.on('data', (chunk: Buffer) => {
 			const text = chunk.toString()
 			stdout += text
@@ -39,6 +78,7 @@ function exec(
 				process.stdout.write(text)
 				sink?.(text)
 			}
+			resetIdle()
 		})
 		child.stderr?.on('data', (chunk: Buffer) => {
 			// Captured even when quiet, so a failed command can report why it failed.
@@ -47,10 +87,16 @@ function exec(
 				process.stderr.write(chunk)
 				sink?.(chunk.toString())
 			}
+			resetIdle()
 		})
 		child.on('error', reject)
-		child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }))
+		child.on('close', (code) => {
+			clearTimeout(idle)
+			clearTimeout(hardKill)
+			resolve({ code: timedOut ? TIMEOUT_CODE : (code ?? 1), stdout, stderr })
+		})
 		if (stdin !== undefined) child.stdin?.end(stdin)
+		resetIdle() // arm the watchdog before any output arrives
 	})
 }
 
@@ -147,7 +193,11 @@ export function makeDeps(
 		readPrompt: () => readFile(promptPath(cwd, config, opts.role), 'utf8'),
 
 		spawnAgent: async (bin, argv, prompt) => {
-			const { stdout } = await exec(bin, argv, cwd, { sink, stdin: prompt })
+			const { stdout } = await exec(bin, argv, cwd, {
+				sink,
+				stdin: prompt,
+				idleTimeoutMs: config.agentIdleTimeoutSec * 1000,
+			})
 			return stdout
 		},
 

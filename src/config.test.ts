@@ -35,6 +35,13 @@ describe('resolveConfig', () => {
 		expect(c.model).toBe('m')
 		expect(c.effort).toBe('high')
 	})
+
+	it('defaults the agent idle timeout and lets it be overridden', () => {
+		expect(defaultConfig().agentIdleTimeoutSec).toBe(480)
+		expect(
+			resolveConfig({ agentIdleTimeoutSec: 900 }).agentIdleTimeoutSec,
+		).toBe(900)
+	})
 })
 
 describe('promptPath', () => {
