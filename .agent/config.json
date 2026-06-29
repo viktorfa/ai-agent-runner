@@ -1,0 +1,11 @@
+{
+	"assistant": "codex",
+	"baseBranch": "main",
+	"workBranch": "auto/work",
+	"workBranchMode": "reset",
+	"maxParallel": 2,
+	"setup": ".agent/setup.sh",
+	"prompts": {
+		"dev": ".agent/prompts/dev-loop.md"
+	}
+}
