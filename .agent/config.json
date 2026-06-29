@@ -1,5 +1,7 @@
 {
 	"assistant": "codex",
+	"model": "gpt-5.5-mini",
+	"effort": "low",
 	"baseBranch": "main",
 	"workBranch": "auto/work",
 	"workBranchMode": "reset",
