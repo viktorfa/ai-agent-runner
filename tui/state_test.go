@@ -142,6 +142,38 @@ func TestParseActivityLogAndHeatmap(t *testing.T) {
 	}
 }
 
+func TestParseAheadBehind(t *testing.T) {
+	// `git rev-list --left-right --count base...work` → "<behind>\t<ahead>".
+	ahead, behind, ok := parseAheadBehind("0\t4\n")
+	if !ok || ahead != 4 || behind != 0 {
+		t.Errorf("parseAheadBehind = %d,%d,%v; want 4,0,true", ahead, behind, ok)
+	}
+	if a, b, ok := parseAheadBehind("2\t3"); !ok || b != 2 || a != 3 {
+		t.Errorf("parseAheadBehind = %d,%d,%v; want 3,2,true", a, b, ok)
+	}
+	if _, _, ok := parseAheadBehind(""); ok {
+		t.Error("parseAheadBehind should reject empty output (missing work ref)")
+	}
+	if _, _, ok := parseAheadBehind("1\tx"); ok {
+		t.Error("parseAheadBehind should reject a non-integer field")
+	}
+}
+
+func TestParseWorktreeBranches(t *testing.T) {
+	out := "worktree /repo\nHEAD abc\nbranch refs/heads/main\n\n" +
+		"worktree /repo/.worktrees/TASK-1\nHEAD def\nbranch refs/heads/auto/task-1\n\n" +
+		"worktree /repo/.worktrees/TASK-2\nHEAD ghi\nbranch refs/heads/auto/task-2\n\n" +
+		"worktree /repo/staging\nHEAD jkl\nbranch refs/heads/auto/work\n"
+	got := parseWorktreeBranches(out, "auto/work")
+	// in-flight task worktrees only — the main checkout and the staging branch drop out.
+	if len(got) != 2 || got[0] != "auto/task-1" || got[1] != "auto/task-2" {
+		t.Errorf("parseWorktreeBranches = %v; want [auto/task-1 auto/task-2]", got)
+	}
+	if got := parseWorktreeBranches("worktree /repo\nbranch refs/heads/main\n", "auto/work"); got != nil {
+		t.Errorf("parseWorktreeBranches with no auto/* worktrees = %v; want nil", got)
+	}
+}
+
 func TestReadRunStatus(t *testing.T) {
 	cd := t.TempDir()
 	writeFile(t, filepath.Join(cd, "status", "demo"),

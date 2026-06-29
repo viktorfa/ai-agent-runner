@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -254,6 +255,109 @@ func (a repoActivity) heatmap(hours int, now time.Time) []heatBucket {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// --- parallel-agents staging (the work branch + in-flight worktrees) ---
+
+// staging is a read-only snapshot of a repo's parallel-agents staging branch and any
+// in-flight per-task worktrees, for the director's at-a-glance view (see
+// docs/PARALLEL_AGENTS.md). Zero/absent when the repo doesn't run parallel staging.
+type staging struct {
+	base      string   // base branch (config.json baseBranch, default master)
+	work      string   // staging branch (config.json workBranch, default auto/work)
+	exists    bool     // origin/<work> exists — the runner has published staging
+	ahead     int      // commits on staging not yet in base (work waiting to promote)
+	behind    int      // commits on base not in staging (staging trails base)
+	worktrees []string // active per-task worktree branches, e.g. auto/task-1 (live agents)
+}
+
+// loadStaging snapshots a repo's staging branch + in-flight worktrees, read-only, via
+// the repo's user (the workspace is agent-owned) — the same passwordless sudo path the
+// commit history uses. A few quick git plumbing reads, no fetch: ahead/behind reflects
+// the runner's last fetch, which is exactly when staging last moved.
+func loadStaging(repoUser, repoPath string) staging {
+	if repoUser == "" || repoPath == "" {
+		return staging{}
+	}
+	base, work := repoBranches(repoUser, repoPath)
+	s := staging{base: base, work: work}
+	git := func(args ...string) (string, bool) {
+		full := append([]string{"-n", "-u", repoUser, "git", "-C", repoPath}, args...)
+		out, err := exec.Command("sudo", full...).Output()
+		return string(out), err == nil
+	}
+	// `A...B --left-right --count` prints "<base-only>\t<work-only>"; a missing
+	// origin/<work> makes rev-list error, leaving exists=false.
+	if out, ok := git("rev-list", "--left-right", "--count",
+		"origin/"+base+"...origin/"+work); ok {
+		if ahead, behind, parsed := parseAheadBehind(out); parsed {
+			s.ahead, s.behind, s.exists = ahead, behind, true
+		}
+	}
+	if out, ok := git("worktree", "list", "--porcelain"); ok {
+		s.worktrees = parseWorktreeBranches(out, work)
+	}
+	return s
+}
+
+// repoBranches reads base/work branch names from a repo's .agent/config.json (as the
+// repo user), falling back to the runner's built-in defaults (config.ts defaultConfig).
+func repoBranches(repoUser, repoPath string) (base, work string) {
+	base, work = "master", "auto/work"
+	path := filepath.Join(repoPath, ".agent", "config.json")
+	out, err := exec.Command("sudo", "-n", "-u", repoUser, "cat", path).Output()
+	if err != nil {
+		return base, work
+	}
+	var cfg struct {
+		BaseBranch string `json:"baseBranch"`
+		WorkBranch string `json:"workBranch"`
+	}
+	if json.Unmarshal(out, &cfg) == nil {
+		if cfg.BaseBranch != "" {
+			base = cfg.BaseBranch
+		}
+		if cfg.WorkBranch != "" {
+			work = cfg.WorkBranch
+		}
+	}
+	return base, work
+}
+
+// parseAheadBehind reads `git rev-list --left-right --count base...work` output: the
+// left count is base-only (behind), the right is work-only (ahead). ok is false unless
+// both fields are present integers.
+func parseAheadBehind(out string) (ahead, behind int, ok bool) {
+	f := strings.Fields(out)
+	if len(f) != 2 {
+		return 0, 0, false
+	}
+	behind, err1 := strconv.Atoi(f[0])
+	ahead, err2 := strconv.Atoi(f[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return ahead, behind, true
+}
+
+// parseWorktreeBranches pulls the in-flight per-task branches from `git worktree list
+// --porcelain` output: every checked-out `auto/*` branch except the staging branch
+// itself (so it shows live agent worktrees, not the integrator's staging checkout).
+func parseWorktreeBranches(out, work string) []string {
+	const prefix = "branch refs/heads/"
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		ref := strings.TrimPrefix(line, prefix)
+		if ref == work || !strings.HasPrefix(ref, "auto/") {
+			continue
+		}
+		branches = append(branches, ref)
+	}
+	return branches
 }
 
 // transcriptJournal returns the last n watcher-journal lines for a repo, with ISO

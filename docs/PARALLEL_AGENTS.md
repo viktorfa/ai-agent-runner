@@ -1,9 +1,10 @@
 # Parallel agents in one repo
 
 Status: **partially built.** The parallel dispatch core (worktree pool + area-lease
-scheduler), serialized gated integrator, published staging accumulation, and explicit
-director lifecycle commands (`status`, `promote`, `discard`) are implemented. TUI
-surfacing and richer task summaries are not yet (see *Phasing*). This doc captures the
+scheduler), serialized gated integrator, published staging accumulation, explicit
+director lifecycle commands (`status`, `promote`, `discard`), and read-only TUI
+surfacing of staging + in-flight worktrees are implemented. Richer per-task summaries
+and TUI-driven `promote`/`discard` are not yet (see *Phasing*). This doc captures the
 plan and the know-how — the decisions (and rejected alternatives) so they don't get
 re-litigated. When a phase ships, fold the operational details into the relevant
 README and trim this doc to what's still forward-looking.
@@ -125,9 +126,12 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
   time, re-runs `config.gates` on the combined tree, rolls back + parks a red or
   conflicting merge); published staging accumulation across runs; explicit
   `status`/`promote`/`discard` CLI commands; runner-side task-state enforcement that
-  only branches whose assigned task is `Done` are eligible for integration. *Still
-  open:* TUI surfacing; richer summaries; the `agent` push credential in any
-  environment where publishing staging is not already authorized.
+  only branches whose assigned task is `Done` are eligible for integration; TUI
+  surfacing of the staging branch (ahead/behind base) + in-flight per-task worktrees in
+  the detail panel (read-only). *Still open:* richer per-task summaries; `promote` /
+  `discard` from the TUI (needs a director-intent file the watcher consumes, so the TUI
+  stays a pure frontend); the `agent` push credential in any environment where
+  publishing staging is not already authorized.
 - **Phase 2 — only if needed:** stronger pre-filters; continuation/handoff for long
   tasks (a continuation note on the task; next dispatch resumes).
 - **Phase 3 — only if Backlog limits bite:** revisit beads for collision-free parallel

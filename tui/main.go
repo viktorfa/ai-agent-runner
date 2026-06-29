@@ -61,6 +61,7 @@ type model struct {
 	iterations  int          // chosen iteration count in the enqueue picker (default 1)
 	activity    []string     // filtered watcher-journal feed (fleet heartbeat)
 	selActivity repoActivity // selected repo's commit history (main-view heatmap + the 'a' view)
+	staging     staging      // selected repo's staging branch + in-flight worktrees
 	width       int
 	height      int
 	message     string
@@ -76,6 +77,7 @@ func initialModel() model {
 	m := model{fleet: loadFleet(), vp: viewport.New()}
 	m.refreshActivity()
 	m.refreshSelActivity()
+	m.refreshStaging()
 	return m
 }
 
@@ -97,6 +99,17 @@ func (m *model) refreshSelActivity() {
 		m.selActivity = loadRepoActivity(r.repoUser, r.repoPath, activityHours)
 	} else {
 		m.selActivity = repoActivity{}
+	}
+}
+
+// refreshStaging loads the selected repo's staging snapshot (work-branch ahead/behind +
+// in-flight worktrees). A few quick read-only git calls for one repo, so it runs on the
+// tick too — unlike the commit history, staging moves second-to-second during a drain.
+func (m *model) refreshStaging() {
+	if r, ok := m.selected(); ok {
+		m.staging = loadStaging(r.repoUser, r.repoPath)
+	} else {
+		m.staging = staging{}
 	}
 }
 
@@ -125,6 +138,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeList:
 			m.fleet = loadFleet()
 			m.refreshActivity()
+			m.refreshStaging()
 		}
 		// modeEnqueue: leave the fleet steady while the transient picker is open.
 		return m, tick()
@@ -157,12 +171,14 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 			m.refreshActivity()
 			m.refreshSelActivity()
+			m.refreshStaging()
 		}
 	case "down", "j":
 		if m.cursor < len(m.fleet.repos)-1 {
 			m.cursor++
 			m.refreshActivity()
 			m.refreshSelActivity()
+			m.refreshStaging()
 		}
 	case "enter", "t":
 		if r, ok := m.selected(); ok {
@@ -174,6 +190,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.fleet = loadFleet()
 		m.refreshActivity()
 		m.refreshSelActivity()
+		m.refreshStaging()
 		m.message = "refreshed"
 	case "e":
 		if r, ok := m.selected(); ok {
@@ -469,6 +486,13 @@ func (m model) detailColumn() string {
 			b.WriteString("\n  • " + j)
 		}
 	}
+	if s := m.staging; s.exists || len(s.worktrees) > 0 {
+		b.WriteString("\n" + dimStyle.Render("stage: ") + stagingLabel(s))
+		if len(s.worktrees) > 0 {
+			b.WriteString("\n" + dimStyle.Render("build: ") +
+				infoStyle.Render(strings.Join(s.worktrees, ", ")))
+		}
+	}
 	if m.message != "" {
 		b.WriteString("\n\n" + dimStyle.Render(m.message))
 	}
@@ -584,6 +608,25 @@ func relTime(iso string) string {
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours())/24)
 	}
+}
+
+// stagingLabel renders the work branch's promote-readiness: clean (== base), or how far
+// ahead (work waiting to promote) and behind (trailing base) it is.
+func stagingLabel(s staging) string {
+	if !s.exists {
+		return dimStyle.Render("—")
+	}
+	if s.ahead == 0 && s.behind == 0 {
+		return okStyle.Render("clean") + dimStyle.Render(" (= "+s.base+")")
+	}
+	var parts []string
+	if s.ahead > 0 {
+		parts = append(parts, infoStyle.Render(fmt.Sprintf("%d ahead", s.ahead)))
+	}
+	if s.behind > 0 {
+		parts = append(parts, warnStyle.Render(fmt.Sprintf("%d behind", s.behind)))
+	}
+	return strings.Join(parts, " · ") + dimStyle.Render(" "+s.work+" vs "+s.base)
 }
 
 func stateLabel(r repoStatus) string {

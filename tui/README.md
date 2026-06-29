@@ -8,14 +8,18 @@ filtered **activity** feed below — the *selected* repo's watcher journal heart
 and a compact **heatmap** of commits-per-hour over the last 48h pinned at the bottom;
 it falls back to a stacked layout on narrow terminals. Watcher status is **per repo**
 (each repo has its own `agent-watch@<repo>` unit), shown in the header count and as a
-`⚠ watcher off` tag; it also recognises the legacy single watcher during migration.
+`⚠ watcher off` tag; it also recognises the legacy single watcher during migration. For
+a repo running parallel agents (`docs/PARALLEL_AGENTS.md`), the detail panel also shows
+the **staging** line — how far the work branch is ahead of / behind base (what's waiting
+to promote) — and a **build** line listing any in-flight per-task worktrees.
 
 It is a **pure frontend**: it reads the runner's existing operator files
 (`~/.config/agent-runner/{repos,queue,status}`, the `.paused` flags), `ps`,
 `systemctl --user is-active`, and the watcher journals (`journalctl --user`, which is
-also where the transcript viewer reads from) — no sudo. Only the commit heatmap and the
-role picker read the agent-owned workspace (`git log` / `.agent/config.json`), via the
-existing passwordless `sudo -u <repo-user>` path, read-only. It acts only by writing those same
+also where the transcript viewer reads from) — no sudo. Only the commit heatmap, the
+staging snapshot (`git rev-list` / `git worktree list`), and the role picker read the
+agent-owned workspace (`git log` / `.agent/config.json`), via the existing passwordless
+`sudo -u <repo-user>` path, read-only. It acts only by writing those same
 operator files the way the control plane does (drop a queue file = `bin/enqueue`;
 touch/remove the pause flag; remove the queue dir). It changes **nothing** about the
 runner's functionality, state, or storage format — remove the TUI and the runner is
