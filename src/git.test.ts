@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+	baseBranchPushArgs,
 	fetchArgs,
 	headShaArgs,
 	mergeAbortArgs,
 	mergeBaseArgs,
 	mergeTaskBranchArgs,
+	promoteWorkBranchArgs,
+	remoteAheadBehindArgs,
 	remoteBranchExistsArgs,
+	remoteDiffStatArgs,
 	resetHardArgs,
 	resetWorkBranchArgs,
 	taskBranch,
@@ -23,6 +27,14 @@ describe('workBranchPushArgs', () => {
 			'--force-with-lease',
 			'origin',
 			'HEAD:auto/work',
+		])
+	})
+
+	it('pushes a base branch without force', () => {
+		expect(baseBranchPushArgs('master')).toEqual([
+			'push',
+			'origin',
+			'HEAD:master',
 		])
 	})
 })
@@ -121,5 +133,30 @@ describe('integrator args', () => {
 
 	it('resetHardArgs hard-resets to a sha', () => {
 		expect(resetHardArgs('abc123')).toEqual(['reset', '--hard', 'abc123'])
+	})
+
+	it('promoteWorkBranchArgs fast-forwards base to staging', () => {
+		expect(promoteWorkBranchArgs('auto/work')).toEqual([
+			'merge',
+			'--ff-only',
+			'origin/auto/work',
+		])
+	})
+
+	it('remoteAheadBehindArgs compares remote branches', () => {
+		expect(remoteAheadBehindArgs('master', 'auto/work')).toEqual([
+			'rev-list',
+			'--left-right',
+			'--count',
+			'origin/master...origin/auto/work',
+		])
+	})
+
+	it('remoteDiffStatArgs summarizes remote staging changes', () => {
+		expect(remoteDiffStatArgs('master', 'auto/work')).toEqual([
+			'diff',
+			'--stat',
+			'origin/master..origin/auto/work',
+		])
 	})
 })

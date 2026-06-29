@@ -23,6 +23,10 @@ function makeDeps(over: Partial<IntegrateDeps> = {}) {
 			return true
 		}),
 		park: vi.fn(async () => {}),
+		pushStaging: vi.fn(async () => {
+			calls.push('push')
+			return true
+		}),
 		log: vi.fn(),
 		...over,
 	}
@@ -47,6 +51,7 @@ describe('integrate', () => {
 			'gates',
 			'merge auto/task-2',
 			'gates',
+			'push',
 		])
 		expect(deps.park).not.toHaveBeenCalled()
 	})
@@ -58,6 +63,7 @@ describe('integrate', () => {
 		const { deps } = makeDeps({ mergeBranch })
 		const out = await integrate(tasks('TASK-1', 'TASK-2'), deps)
 		expect(out).toEqual({ staged: ['TASK-2'], parked: ['TASK-1'] })
+		expect(deps.pushStaging).toHaveBeenCalledOnce()
 		expect(deps.rollbackLastMerge).not.toHaveBeenCalled() // abort handled in merge
 		expect(deps.park).toHaveBeenCalledWith(
 			'TASK-1',
@@ -73,10 +79,27 @@ describe('integrate', () => {
 		const { deps } = makeDeps({ runGates })
 		const out = await integrate(tasks('TASK-1', 'TASK-2'), deps)
 		expect(out).toEqual({ staged: ['TASK-2'], parked: ['TASK-1'] })
+		expect(deps.pushStaging).toHaveBeenCalledOnce()
 		expect(deps.rollbackLastMerge).toHaveBeenCalledOnce()
 		expect(deps.park).toHaveBeenCalledWith(
 			'TASK-1',
 			expect.stringContaining('gates red'),
 		)
+	})
+
+	it('does not publish staging when every task parks', async () => {
+		const { deps } = makeDeps({
+			mergeBranch: vi.fn(async () => 'conflict' as const),
+		})
+		const out = await integrate(tasks('TASK-1'), deps)
+		expect(out).toEqual({ staged: [], parked: ['TASK-1'] })
+		expect(deps.pushStaging).not.toHaveBeenCalled()
+	})
+
+	it('throws when publishing staging fails', async () => {
+		const { deps } = makeDeps({
+			pushStaging: vi.fn(async () => false),
+		})
+		await expect(integrate(tasks('TASK-1'), deps)).rejects.toThrow(/publish/)
 	})
 })

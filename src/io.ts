@@ -7,7 +7,10 @@ import { type AgentConfig, promptPath } from './config'
 import {
 	fetchArgs,
 	headShaArgs,
+	mergeAbortArgs,
+	mergeBaseArgs,
 	mergeTaskBranchArgs,
+	remoteBranchExistsArgs,
 	resetHardArgs,
 	resetWorkBranchArgs,
 	taskBranch,
@@ -21,6 +24,7 @@ import { createSerializer } from './mutex'
 import type { OrchestrateDeps } from './orchestrate'
 import type { ParallelDeps } from './parallel'
 import { type RunDeps, runLoop } from './run'
+import type { StagingDeps } from './staging'
 import { parseTask, type TaskMeta } from './task'
 import type { RunOptions } from './types'
 
@@ -106,6 +110,10 @@ function exec(
 				sink?.(chunk.toString())
 			}
 			resetIdle()
+		})
+		child.stdin?.on('error', (err: NodeJS.ErrnoException) => {
+			if (err.code === 'EPIPE') return // Child exited before it needed our prompt.
+			reject(err)
 		})
 		child.on('error', reject)
 		child.on('close', (code) => {
@@ -285,10 +293,10 @@ export function makeOrchestrateDeps(
  * Real IO for `integrate`: drive git + the gates script in the main working tree to
  * fold task branches into staging (auto/work).
  *
- * Staging is rebuilt from `origin/<base>` at the start of each pass: cross-poll
- * accumulation and director promote (staging → master) are slice 7, so for now a pass
- * integrates only the branches handed to it. The pre-merge sha is captured per merge so
- * a red combined-tree gate can be rolled back without touching earlier landed tasks.
+ * Staging resumes from `origin/<workBranch>` when it exists, otherwise from
+ * `origin/<base>`, then absorbs the current base before task branches are merged. The
+ * pre-merge sha is captured per merge so a red combined-tree gate can be rolled back
+ * without touching earlier landed tasks.
  */
 export function makeIntegrateDeps(
 	opts: RunOptions,
@@ -299,9 +307,16 @@ export function makeIntegrateDeps(
 	let preMergeSha = ''
 	return {
 		prepareStaging: async () => {
+			const exists = await exec(
+				'git',
+				remoteBranchExistsArgs(config.workBranch),
+				cwd,
+				{ quiet: true },
+			)
+			const from = exists.code === 0 ? config.workBranch : config.baseBranch
 			const { code, stderr } = await exec(
 				'git',
-				resetWorkBranchArgs(config.workBranch, config.baseBranch),
+				resetWorkBranchArgs(config.workBranch, from),
 				cwd,
 				{ sink },
 			)
@@ -310,6 +325,16 @@ export function makeIntegrateDeps(
 					`failed to prepare staging ${config.workBranch}: ${stderr.trim() || '(none)'}`,
 				)
 			}
+			if (exists.code !== 0) return
+			const merged = await exec('git', mergeBaseArgs(config.baseBranch), cwd, {
+				sink,
+			})
+			if (merged.code === 0) return
+			await exec('git', mergeAbortArgs(), cwd, { quiet: true })
+			throw new Error(
+				`${config.workBranch} conflicts with origin/${config.baseBranch}; ` +
+					'resolve or discard staging before integrating new tasks.',
+			)
 		},
 
 		mergeBranch: async (branch) => {
@@ -339,6 +364,27 @@ export function makeIntegrateDeps(
 
 		park: (taskId, reason) => blockTask(cwd, taskId, reason),
 
+		pushStaging: async () => {
+			const { code } = await exec(
+				'git',
+				workBranchPushArgs(config.workBranch),
+				cwd,
+				{ sink },
+			)
+			return code === 0
+		},
+
+		log: (line) => {
+			process.stderr.write(`${line}\n`)
+			sink?.(`${line}\n`)
+		},
+	}
+}
+
+/** Real IO for staging lifecycle commands (`status`, `promote`, `discard`). */
+export function makeStagingDeps(cwd: string, sink?: Sink): StagingDeps {
+	return {
+		git: (gitArgs) => exec('git', gitArgs, cwd, { sink }),
 		log: (line) => {
 			process.stderr.write(`${line}\n`)
 			sink?.(`${line}\n`)
@@ -379,9 +425,16 @@ export function makeParallelDeps(
 				// Clear any leftover from a crashed run so `worktree add` starts clean.
 				await exec('git', worktreeRemoveArgs(path), cwd, { quiet: true })
 				await exec('git', worktreePruneArgs(), cwd, { quiet: true })
+				const exists = await exec(
+					'git',
+					remoteBranchExistsArgs(config.workBranch),
+					cwd,
+					{ quiet: true },
+				)
+				const from = exists.code === 0 ? config.workBranch : config.baseBranch
 				const { code, stderr } = await exec(
 					'git',
-					worktreeAddArgs(path, taskBranch(id), config.baseBranch),
+					worktreeAddArgs(path, taskBranch(id), from),
 					cwd,
 					{ sink },
 				)

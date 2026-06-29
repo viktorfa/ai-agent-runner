@@ -29,6 +29,8 @@ export interface IntegrateDeps {
 	runGates(): Promise<boolean>
 	/** Hold a task back for human/redo attention, with a reason. */
 	park(taskId: string, reason: string): Promise<void>
+	/** Publish the current staging branch for preview and explicit promotion. */
+	pushStaging(): Promise<boolean>
 	log(line: string): void
 }
 
@@ -70,6 +72,9 @@ export async function integrate(
 		}
 		deps.log(`staged ${id} (${branch})`)
 		staged.push(id)
+	}
+	if (staged.length > 0 && !(await deps.pushStaging())) {
+		throw new Error('failed to publish staging branch')
 	}
 	return { staged, parked }
 }

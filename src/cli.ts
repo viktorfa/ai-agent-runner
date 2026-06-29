@@ -7,24 +7,28 @@ import {
 	makeIntegrateDeps,
 	makeOrchestrateDeps,
 	makeParallelDeps,
+	makeStagingDeps,
 	openSink,
 } from './io'
 import { runLogPath } from './log-path'
 import { orchestrate } from './orchestrate'
 import { runParallel } from './parallel'
 import { type IterationOutcome, runLoop } from './run'
+import { discardStaging, promoteStaging, statusStaging } from './staging'
+
+const COMMANDS = new Set(['run', 'orchestrate', 'status', 'promote', 'discard'])
 
 async function main(): Promise<void> {
 	const [command, ...rest] = process.argv.slice(2)
-	if (command !== 'run' && command !== 'orchestrate') {
-		process.stderr.write('usage: agent-runner <run|orchestrate> [options]\n')
+	if (!command || !COMMANDS.has(command)) {
+		process.stderr.write(
+			'usage: agent-runner <run|orchestrate|status|promote|discard> [options]\n',
+		)
 		process.exit(1)
 	}
 
 	const args = parseArgs(rest)
 	const config = await loadConfig(args.workspace)
-	// CLI flag wins, else the repo's .agent/config.json, else a default.
-	const opts = resolveRunOptions(args, config)
 
 	// Route the agent (and its children) through the host egress proxy.
 	if (args.proxy) {
@@ -37,13 +41,36 @@ async function main(): Promise<void> {
 	// Persist a transcript so unattended runs (and the watcher) are reviewable
 	// after the fact, alongside the Squid access log.
 	const logFile = runLogPath({
-		workspace: opts.workspace,
-		assistant: opts.assistant,
+		workspace: args.workspace,
+		assistant: command,
 		timestamp: new Date().toISOString(),
 	})
 	const { sink, close } = openSink(logFile)
-	sink(`# agent-runner ${command} — ${opts.assistant}/${opts.role}\n`)
+	sink(`# agent-runner ${command}\n`)
 	process.stderr.write(`transcript: ${logFile}\n`)
+
+	if (command === 'status' || command === 'promote' || command === 'discard') {
+		try {
+			const deps = makeStagingDeps(args.workspace, sink)
+			if (command === 'status') {
+				await statusStaging(config, deps)
+			} else if (command === 'promote') {
+				await promoteStaging(config, deps)
+			} else {
+				await discardStaging(config, deps)
+			}
+			await close()
+			process.exit(0)
+		} catch (err) {
+			sink(`\nERROR: ${err instanceof Error ? err.message : String(err)}\n`)
+			await close()
+			throw err
+		}
+	}
+
+	// CLI flag wins, else the repo's .agent/config.json, else a default.
+	const opts = resolveRunOptions(args, config)
+	sink(`# assistant ${opts.assistant}/${opts.role}\n`)
 
 	// A drain opts into parallel agents when the repo's config raises maxParallel;
 	// otherwise it's the sequential drain (and `run` is always sequential).

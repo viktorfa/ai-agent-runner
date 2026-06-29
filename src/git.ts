@@ -9,6 +9,16 @@ export function workBranchPushArgs(branch: string): string[] {
 	return ['push', '--force-with-lease', 'origin', `HEAD:${branch}`]
 }
 
+/** Publish a local fast-forwarded base branch without force. */
+export function baseBranchPushArgs(branch: string): string[] {
+	return ['push', 'origin', `HEAD:${branch}`]
+}
+
+/** Fast-forward the local base branch to the published staging branch. */
+export function promoteWorkBranchArgs(workBranch: string): string[] {
+	return ['merge', '--ff-only', `origin/${workBranch}`]
+}
+
 /** Fetch the latest refs from origin. */
 export function fetchArgs(): string[] {
 	return ['fetch', 'origin']
@@ -89,4 +99,25 @@ export function mergeTaskBranchArgs(branch: string): string[] {
 /** Hard-reset the current branch to a sha (undo a merge whose combined gates went red). */
 export function resetHardArgs(sha: string): string[] {
 	return ['reset', '--hard', sha]
+}
+
+/** Count commits on each side of two remote branches. */
+export function remoteAheadBehindArgs(
+	leftBranch: string,
+	rightBranch: string,
+): string[] {
+	return [
+		'rev-list',
+		'--left-right',
+		'--count',
+		`origin/${leftBranch}...origin/${rightBranch}`,
+	]
+}
+
+/** Summarize files changed between two remote branches. */
+export function remoteDiffStatArgs(
+	baseBranch: string,
+	workBranch: string,
+): string[] {
+	return ['diff', '--stat', `origin/${baseBranch}..origin/${workBranch}`]
 }

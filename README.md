@@ -17,14 +17,17 @@ src/
   types.ts            Assistant/RunOptions/AgentResult/AgentAdapter
   adapters/{claude,codex}.ts   per-tool buildArgv + parseResult (the quirks, typed)
   prompt.ts           assemblePrompt(base, task?) — the --task directive
-  git.ts              fetch/reset/merge/unmerged-count + force-with-lease push
+  git.ts              fetch/reset/merge/unmerged-count + staging/base push helpers
   config.ts           AgentConfig (assistant/model/effort/workBranchMode) + loadConfig(.agent/config.json)
   run.ts              runLoop(opts, deps) — iterations / drain + stall-detection
   orchestrate.ts      fetch + prepare work branch (reset|accumulate) + setup + runLoop
+  parallel.ts         worktree-isolated task dispatch + area leases
+  integrate.ts        serialized gated merge into the staging branch
+  staging.ts          status/promote/discard lifecycle for staging
   args.ts             parseArgs — the CLI surface
   log-path.ts         runLogPath — transcript path
   io.ts               real spawn/fs/push/git + transcript sink (OS-glue edge)
-  cli.ts              entry: run | orchestrate
+  cli.ts              entry: run | orchestrate | status | promote | discard
 bin/
   agent-runner        host entry: runs cli.ts via tsx directly
   dispatch            control plane: run as the operator, drops to a repo's user (flock'd)
@@ -48,10 +51,11 @@ tui/                  operator dashboard (Bubble Tea v2, separate Go module); se
 - **Board:** the runner queries readiness with `pnpm exec backlog task list`
   (`io.ts`), so a repo using the runner must use **Backlog.md + pnpm** (or this
   becomes a `.agent/` hook later).
-- **Parallel agents in one repo** (planned, not yet built): worktree-isolated
-  branches, area leases for conflict prevention, a serialized gated merge to a staging
-  branch, and the director testing the UI instead of reviewing diffs — design + the
-  decisions behind it in `docs/PARALLEL_AGENTS.md`.
+- **Parallel agents in one repo:** when `.agent/config.json` sets `maxParallel > 1`,
+  `orchestrate --drain` dispatches disjoint `risk:low` tasks into separate worktrees,
+  pushes task branches, then serializes them through a gated merge into `auto/work`.
+  The director tests staging and explicitly promotes or discards it; see
+  `docs/PARALLEL_AGENTS.md`.
 
 ## Commands
 ```bash
@@ -63,9 +67,14 @@ pnpm lint           # biome check .
 # one session (fetch nothing; just run the agent against the current tree):
 bin/agent-runner run --assistant codex --workspace "$PWD" --task TASK-12
 
-# a full run (fetch + prepare work branch + setup + loop):
+# a full run (sequential unless maxParallel > 1 in .agent/config.json):
 bin/agent-runner orchestrate --workspace "$PWD" \
   --proxy http://127.0.0.1:3128 --drain --force
+
+# inspect, promote, or discard published staging:
+bin/agent-runner status --workspace "$PWD"
+bin/agent-runner promote --workspace "$PWD"
+bin/agent-runner discard --workspace "$PWD"
 ```
 Key flags: `--task <id>` (one task) or `--drain` (work the board until empty),
 `--iterations N`, `--proxy`, `--no-push`, `--force`.
@@ -78,6 +87,28 @@ machine binding (path/user/proxy); `role` is per-dispatch (default `dev`).
 **Work-branch mode** (`.agent/config.json` → `workBranchMode`): `reset` (clean diff
 per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge base in,
 stack tasks — merge to base periodically), chosen per repo.
+
+**Parallel staging** (`.agent/config.json` → `maxParallel > 1`): a drain selects up
+to `maxParallel` ready `risk:low` tasks with non-overlapping `area:*` labels, runs
+each in its own worktree on `auto/<task-id>`, then folds green branches into
+`auto/work` one at a time. `config.gates` (default `.agent/gates.sh`) runs after each
+merge; a textual conflict or red gate parks the task instead of landing it.
+Successful staging is published to `origin/auto/work` with force-with-lease. `promote`
+fast-forwards the base branch to published staging and pushes it normally; `discard`
+resets only staging back to base.
+
+Known operational gap: the harness currently trusts the agent's success signal after
+the branch commit. A real two-task smoke showed the merge/gate/publish path works, but
+one agent left its Backlog task as `To Do` while still committing the code. Until the
+harness enforces "assigned task is no longer ready" post-run, prompts and review should
+require agents to mark their task `Done` or `Blocked`.
+
+Worker prompts should follow the same basic lifecycle as mature target repos such as
+Room Planner: read the repo instructions and full task, claim the assigned task, keep
+the change focused, run the gate, mark every satisfied AC and set the task `Done` (or
+`Blocked` with a reason), then commit task metadata and code together. The runner
+pushes task/staging branches; merging staging to base remains an explicit director
+action via `promote`.
 
 **Idle watchdog** (`.agent/config.json` → `agentIdleTimeoutSec`, default `480`): if
 the agent produces no output for this long it's killed (process group and all), so a

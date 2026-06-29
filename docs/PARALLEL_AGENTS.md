@@ -1,12 +1,12 @@
 # Parallel agents in one repo
 
 Status: **partially built.** The parallel dispatch core (worktree pool + area-lease
-scheduler) and the serialized gated integrator are implemented (`src/parallel.ts`,
-`src/integrate.ts`); cross-poll staging accumulation + director promote, and the TUI
-surfacing, are not yet (see *Phasing*). This doc captures the plan and the know-how —
-the decisions (and rejected alternatives) so they don't get re-litigated. When a phase
-ships, fold the operational details into the relevant README and trim this doc to
-what's still forward-looking.
+scheduler), serialized gated integrator, published staging accumulation, and explicit
+director lifecycle commands (`status`, `promote`, `discard`) are implemented. TUI
+surfacing and richer task summaries are not yet (see *Phasing*). This doc captures the
+plan and the know-how — the decisions (and rejected alternatives) so they don't get
+re-litigated. When a phase ships, fold the operational details into the relevant
+README and trim this doc to what's still forward-looking.
 
 ## What the remote executor is for
 
@@ -81,14 +81,19 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
 5. **Serialized gated integrator (single-flight).** Merges one branch at a time into
    `auto/work` and **re-runs the full gates on the combined tree** — the only thing
    that catches *semantic* conflicts git sees no marker for (A renames, B calls it from
-   elsewhere). Nothing stays on `auto/work` that isn't green.
+   elsewhere). It resumes from published `origin/auto/work` when present, otherwise
+   starts from `origin/<base>`, and publishes green staging with force-with-lease.
+   Nothing stays on `auto/work` that isn't green.
 6. **Conflict / red resolution.** On a textual conflict or red combined-tree gates:
    **park and re-dispatch on the fresh base** — a new worktree off the current
    `auto/work`, agent reimplements the task on top of the conflicting change, yielding a
    clean gate-checkable diff. If it re-conflicts or is touchy, escalate to
    `needs-human`. Never blind marker-resolution; never land red.
-7. **Staging + promote.** Director tests the `auto/work` preview, then promotes to
-   `master` (batch gesture) or discards/resets. Undo must be one gesture in the TUI.
+7. **Staging + promote.** Director tests the `auto/work` preview, then runs
+   `agent-runner promote` to fast-forward `master` to `origin/auto/work`, or
+   `agent-runner discard` to reset only staging back to `origin/master`.
+   `agent-runner status` reports ahead/behind and diffstat. Undo should become one
+   gesture in the TUI.
 8. **Glanceable summaries, not diffs.** Per task, surface a short "what I did + which
    patterns/approach + files touched" digest in the TUI (the agent already emits summary
    messages). That's the director's "glance at patterns" without reading code.
@@ -118,10 +123,11 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
   *Done so far:* worktree pool + cap + area-lease scheduler (`runParallel`); serialized
   gated integrator (`integrate` — merges each green branch into `auto/work` one at a
   time, re-runs `config.gates` on the combined tree, rolls back + parks a red or
-  conflicting merge). *Still open:* staging accumulates only within one pass (rebuilt
-  from base each run — no cross-poll accumulation yet); director `promote`/`discard`;
-  TUI surfacing; the `agent` push credential (the integrator works locally, so this
-  only blocks publishing staging).
+  conflicting merge); published staging accumulation across runs; explicit
+  `status`/`promote`/`discard` CLI commands. *Still open:* TUI surfacing; richer
+  summaries; harness enforcement that an assigned task left the ready set (`Done` or
+  `Blocked`) before its branch is eligible for integration; the `agent` push credential
+  in any environment where publishing staging is not already authorized.
 - **Phase 2 — only if needed:** stronger pre-filters; continuation/handoff for long
   tasks (a continuation note on the task; next dispatch resumes).
 - **Phase 3 — only if Backlog limits bite:** revisit beads for collision-free parallel
@@ -138,5 +144,10 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
 - **Green ≠ correct.** A semantic conflict no test covers can reach staging; the UI test
   before promote is the human backstop, at the outcome level.
 - **`touches` is a hint; agents may stray.** Accepted for now (scope guard deferred).
+- **Task-state trust is still prompt-level.** A real two-task smoke showed the
+  worktree/agent/push/integrate/gate/publish path works end to end, but also showed why
+  the harness should verify assigned tasks are not still `To Do` before integration:
+  one agent committed code while leaving its Backlog task ready. The prompt now makes
+  Done/Blocked mandatory; code enforcement is the next hardening step.
 - **Throughput trade.** Heavy overlap serializes; conflicts cost a re-run. That's the
   correct trade — parallelism only where areas are genuinely independent.
