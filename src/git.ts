@@ -24,6 +24,11 @@ export function fetchArgs(): string[] {
 	return ['fetch', 'origin']
 }
 
+/** Read a file's contents from a git ref without touching the working tree or index. */
+export function showFileAtRefArgs(ref: string, path: string): string[] {
+	return ['show', `${ref}:${path}`]
+}
+
 /** Reset the work branch to the tip of the base branch (a clean per-run base). */
 export function resetWorkBranchArgs(
 	workBranch: string,

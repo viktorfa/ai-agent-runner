@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultConfig, promptPath, resolveConfig } from './config'
+import { defaultConfig, parseConfig, promptPath, resolveConfig } from './config'
 
 describe('resolveConfig', () => {
 	it('returns defaults for an empty partial', () => {
@@ -51,6 +51,19 @@ describe('resolveConfig', () => {
 	it('defaults the integrator gates script and lets it be overridden', () => {
 		expect(defaultConfig().gates).toBe('.agent/gates.sh')
 		expect(resolveConfig({ gates: 'make ci' }).gates).toBe('make ci')
+	})
+})
+
+describe('parseConfig', () => {
+	it('resolves a full config from raw JSON text (merged over defaults)', () => {
+		const c = parseConfig('{"assistant":"codex","maxParallel":3}')
+		expect(c.assistant).toBe('codex')
+		expect(c.maxParallel).toBe(3)
+		expect(c.workBranch).toBe('auto/work') // default kept
+	})
+
+	it('throws on invalid JSON, so callers can fall back deliberately', () => {
+		expect(() => parseConfig('not json')).toThrow()
 	})
 })
 

@@ -96,14 +96,16 @@ export function resolveConfig(partial: Partial<AgentConfig>): AgentConfig {
 	}
 }
 
+/** Resolve a full config from raw config.json text. Throws if the text isn't valid JSON. */
+export function parseConfig(text: string): AgentConfig {
+	return resolveConfig(JSON.parse(text) as Partial<AgentConfig>)
+}
+
 /** Load .agent/config.json merged over defaults; defaults if absent/invalid. */
 export async function loadConfig(workspace: string): Promise<AgentConfig> {
 	try {
 		const path = join(workspace, '.agent', 'config.json')
-		const partial = JSON.parse(
-			await readFile(path, 'utf8'),
-		) as Partial<AgentConfig>
-		return resolveConfig(partial)
+		return parseConfig(await readFile(path, 'utf8'))
 	} catch {
 		return defaultConfig()
 	}

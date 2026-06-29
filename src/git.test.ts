@@ -12,6 +12,7 @@ import {
 	remoteDiffStatArgs,
 	resetHardArgs,
 	resetWorkBranchArgs,
+	showFileAtRefArgs,
 	taskBranch,
 	unmergedCountArgs,
 	workBranchPushArgs,
@@ -42,6 +43,13 @@ describe('workBranchPushArgs', () => {
 describe('prep args', () => {
 	it('fetchArgs fetches origin', () => {
 		expect(fetchArgs()).toEqual(['fetch', 'origin'])
+	})
+
+	it('showFileAtRefArgs reads a file blob from a ref', () => {
+		expect(showFileAtRefArgs('origin/master', '.agent/config.json')).toEqual([
+			'show',
+			'origin/master:.agent/config.json',
+		])
 	})
 
 	it('resetWorkBranchArgs resets the work branch to origin/base', () => {

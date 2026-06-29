@@ -3,6 +3,7 @@ import { loadConfig } from './config'
 import { taskBranch } from './git'
 import { integrate } from './integrate'
 import {
+	loadRemoteConfig,
 	makeDeps,
 	makeIntegrateDeps,
 	makeOrchestrateDeps,
@@ -28,7 +29,7 @@ async function main(): Promise<void> {
 	}
 
 	const args = parseArgs(rest)
-	const config = await loadConfig(args.workspace)
+	let config = await loadConfig(args.workspace)
 
 	// Route the agent (and its children) through the host egress proxy.
 	if (args.proxy) {
@@ -65,6 +66,19 @@ async function main(): Promise<void> {
 			sink(`\nERROR: ${err instanceof Error ? err.message : String(err)}\n`)
 			await close()
 			throw err
+		}
+	}
+
+	// An executor run's config must reflect origin, not the workspace's stale working
+	// tree — orchestrate only syncs the tree *after* startup, so a pushed config change
+	// (maxParallel, model, gates, …) would otherwise take effect one run late. `run`
+	// keeps the current-tree config by design (it operates on the local tree as-is).
+	if (command === 'orchestrate') {
+		const base = config.baseBranch
+		const fresh = await loadRemoteConfig(args.workspace, base)
+		if (fresh) {
+			config = fresh
+			sink(`# config loaded from origin/${base}\n`)
 		}
 	}
 

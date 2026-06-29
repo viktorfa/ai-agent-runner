@@ -3,7 +3,7 @@ import { createWriteStream, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { parseReadyTaskIds } from './board'
-import { type AgentConfig, promptPath } from './config'
+import { type AgentConfig, parseConfig, promptPath } from './config'
 import {
 	fetchArgs,
 	headShaArgs,
@@ -13,6 +13,7 @@ import {
 	remoteBranchExistsArgs,
 	resetHardArgs,
 	resetWorkBranchArgs,
+	showFileAtRefArgs,
 	taskBranch,
 	workBranchPushArgs,
 	worktreeAddArgs,
@@ -221,6 +222,35 @@ async function readTaskMeta(cwd: string, id: string): Promise<TaskMeta | null> {
 	if (!file) return null
 	try {
 		return parseTask(await readFile(file[1].trim(), 'utf8'))
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Load the config that should govern an executor run from `origin/<baseBranch>` — the
+ * committed, pushed config — rather than the workspace's working tree, which still
+ * reflects the *previous* run until orchestrate syncs it. Without this, a pushed config
+ * change (maxParallel, model, gates, …) only takes effect one run later. Fetches first
+ * so the ref is current; returns null (caller keeps the working-tree config) if the
+ * fetch fails, the ref has no config file, or it doesn't parse — e.g. a local repo with
+ * no origin.
+ */
+export async function loadRemoteConfig(
+	workspace: string,
+	baseBranch: string,
+): Promise<AgentConfig | null> {
+	const fetched = await exec('git', fetchArgs(), workspace, { quiet: true })
+	if (fetched.code !== 0) return null
+	const shown = await exec(
+		'git',
+		showFileAtRefArgs(`origin/${baseBranch}`, '.agent/config.json'),
+		workspace,
+		{ quiet: true },
+	)
+	if (shown.code !== 0) return null
+	try {
+		return parseConfig(shown.stdout)
 	} catch {
 		return null
 	}
