@@ -52,9 +52,10 @@ describe('prep args', () => {
 		])
 	})
 
-	it('resetWorkBranchArgs resets the work branch to origin/base', () => {
+	it('resetWorkBranchArgs force-resets the work branch to origin/base (clean scratch)', () => {
 		expect(resetWorkBranchArgs('auto/work', 'master')).toEqual([
 			'checkout',
+			'-f',
 			'-B',
 			'auto/work',
 			'origin/master',

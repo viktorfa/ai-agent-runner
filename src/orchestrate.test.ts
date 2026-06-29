@@ -55,7 +55,7 @@ function makeDeps(overrides?: {
 	return { deps, gitCalls, runSetup, push, spawnAgent }
 }
 
-const RESET = ['checkout', '-B', 'auto/work', 'origin/master']
+const RESET = ['checkout', '-f', '-B', 'auto/work', 'origin/master']
 const MERGE = ['merge', '--no-edit', 'origin/master']
 
 describe('orchestrate (reset mode)', () => {
@@ -91,6 +91,7 @@ describe('orchestrate (accumulate mode)', () => {
 		await orchestrate(opts, accumulateConfig, deps)
 		expect(gitCalls).toContainEqual([
 			'checkout',
+			'-f',
 			'-B',
 			'auto/work',
 			'origin/auto/work',

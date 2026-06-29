@@ -71,7 +71,7 @@ describe('promoteStaging', () => {
 		expect(calls).toEqual([
 			'fetch origin',
 			'rev-parse --verify --quiet refs/remotes/origin/auto/work',
-			'checkout -B master origin/master',
+			'checkout -f -B master origin/master',
 			'merge --ff-only origin/auto/work',
 			'push origin HEAD:master',
 		])
@@ -95,7 +95,7 @@ describe('discardStaging', () => {
 		await discardStaging(defaultConfig(), deps)
 		expect(calls).toEqual([
 			'fetch origin',
-			'checkout -B auto/work origin/master',
+			'checkout -f -B auto/work origin/master',
 			'push --force-with-lease origin HEAD:auto/work',
 		])
 	})

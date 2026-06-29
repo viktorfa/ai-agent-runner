@@ -29,12 +29,18 @@ export function showFileAtRefArgs(ref: string, path: string): string[] {
 	return ['show', `${ref}:${path}`]
 }
 
-/** Reset the work branch to the tip of the base branch (a clean per-run base). */
+/**
+ * Reset the work branch to the tip of the base branch (a clean per-run base).
+ * `-f` discards any uncommitted changes in the staging checkout — it's runner-owned
+ * scratch, so a half-finished integrate, stray board edit, or external tool touching
+ * tracked files must not poison-pill the next drain. Real work lives on task branches
+ * in separate worktrees, never here. Untracked files (e.g. transcripts) are left alone.
+ */
 export function resetWorkBranchArgs(
 	workBranch: string,
 	baseBranch: string,
 ): string[] {
-	return ['checkout', '-B', workBranch, `origin/${baseBranch}`]
+	return ['checkout', '-f', '-B', workBranch, `origin/${baseBranch}`]
 }
 
 /** Count commits on the work branch not yet in the base branch (unmerged work). */
