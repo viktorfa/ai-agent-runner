@@ -443,6 +443,35 @@ func clearQueue(cd, repo string) error {
 	return os.RemoveAll(filepath.Join(cd, "queue", repo))
 }
 
+// watcherVerb is the systemctl verb-set to turn a repo's watcher on/off: enable/disable
+// with --now, so the change is both immediate and boot-persistent — matching
+// control/README's `enable --now` install gesture (enablement is also how concurrency
+// is bounded: enable only as many instances as the box can take).
+func watcherVerb(on bool) []string {
+	if on {
+		return []string{"enable", "--now"}
+	}
+	return []string{"disable", "--now"}
+}
+
+// setWatcher turns a repo's watcher unit on or off via the operator's own systemd user
+// session — no sudo, the same `agent-watch@<repo>` units the view already queries with
+// is-active. Unlike pause (a soft hold via the .paused flag, watcher still running),
+// this controls whether the watcher process exists at all.
+func setWatcher(repo string, on bool) error {
+	args := append([]string{"--user"}, watcherVerb(on)...)
+	args = append(args, "agent-watch@"+repo+".service")
+	out, err := exec.Command("systemctl", args...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("systemctl %s: %s", strings.Join(watcherVerb(on), " "), msg)
+	}
+	return nil
+}
+
 // enqueue writes a one-off job file, mirroring bin/enqueue's contract exactly:
 // a FIFO-sortable UTC-timestamp+pid filename under queue/<repo>/, one arg per line
 // (the watcher reads it back with mapfile). Done directly — same as the pause/clear

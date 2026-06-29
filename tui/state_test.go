@@ -142,6 +142,15 @@ func TestParseActivityLogAndHeatmap(t *testing.T) {
 	}
 }
 
+func TestWatcherVerb(t *testing.T) {
+	if got := watcherVerb(true); len(got) != 2 || got[0] != "enable" || got[1] != "--now" {
+		t.Errorf("watcherVerb(true) = %v; want [enable --now]", got)
+	}
+	if got := watcherVerb(false); len(got) != 2 || got[0] != "disable" || got[1] != "--now" {
+		t.Errorf("watcherVerb(false) = %v; want [disable --now]", got)
+	}
+}
+
 func TestParseAheadBehind(t *testing.T) {
 	// `git rev-list --left-right --count base...work` → "<behind>\t<ahead>".
 	ahead, behind, ok := parseAheadBehind("0\t4\n")

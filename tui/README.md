@@ -21,7 +21,9 @@ staging snapshot (`git rev-list` / `git worktree list`), and the role picker rea
 agent-owned workspace (`git log` / `.agent/config.json`), via the existing passwordless
 `sudo -u <repo-user>` path, read-only. It acts only by writing those same
 operator files the way the control plane does (drop a queue file = `bin/enqueue`;
-touch/remove the pause flag; remove the queue dir). It changes **nothing** about the
+touch/remove the pause flag; remove the queue dir), plus turning a repo's own
+`agent-watch@<repo>` watcher on/off through the operator's systemd **user** session
+(`systemctl --user enable/disable --now`, no sudo). It changes **nothing** about the
 runner's functionality, state, or storage format — remove the TUI and the runner is
 unaffected.
 
@@ -58,7 +60,8 @@ rest of the control plane.
 | `enter` / `t` | open the selected repo's **transcript** — timestamped & readable (codex JSON rendered to `$ cmd ✓` / `💬 message` lines), follows the tail; `esc`/`q` to go back |
 | `a` | full **activity** view — the heatmap (also shown at the bottom of the main view) plus a recent `auto/work` commit timeline; `r` refresh, `esc`/`q` back |
 | `e` | enqueue a one-off run — pick the role (`↑/↓`, from those the repo defines in `.agent/config.json`) and iteration count (`←/→`, default 1); `enter` queues, `esc` cancels. Writes the same queue file as `bin/enqueue` |
-| `p` | toggle the repo's watcher pause flag |
+| `p` | toggle the repo's watcher **pause** flag (watcher stays running, holds off dispatching) |
+| `w` | turn the repo's **watcher** unit on/off (`systemctl --user enable/disable --now agent-watch@<repo>`) |
 | `x` | clear the repo's pending one-off queue |
 | `r` | refresh now (also auto-refreshes every 3s) |
 | `q` / `ctrl+c` | quit |

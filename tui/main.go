@@ -203,6 +203,14 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if r, ok := m.selected(); ok {
 			m.act("toggled pause for "+r.name, togglePause(m.fleet.configDir, r.name))
 		}
+	case "w":
+		if r, ok := m.selected(); ok {
+			verb := "enabled"
+			if r.watcherOn {
+				verb = "disabled"
+			}
+			m.act(verb+" watcher for "+r.name, setWatcher(r.name, !r.watcherOn))
+		}
 	case "x":
 		if r, ok := m.selected(); ok {
 			m.act("cleared queue for "+r.name, clearQueue(m.fleet.configDir, r.name))
@@ -423,7 +431,7 @@ func heatCell(count int) string {
 	}
 }
 
-const footerKeys = "↑/↓ move · enter/t transcript · a activity · e enqueue (pick role) · p pause · x clear queue · r refresh · q quit"
+const footerKeys = "↑/↓ move · enter/t transcript · a activity · e enqueue (pick role) · p pause · w watch on/off · x clear queue · r refresh · q quit"
 
 func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
 
