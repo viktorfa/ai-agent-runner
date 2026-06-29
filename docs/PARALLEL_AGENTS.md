@@ -124,10 +124,10 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
   gated integrator (`integrate` — merges each green branch into `auto/work` one at a
   time, re-runs `config.gates` on the combined tree, rolls back + parks a red or
   conflicting merge); published staging accumulation across runs; explicit
-  `status`/`promote`/`discard` CLI commands. *Still open:* TUI surfacing; richer
-  summaries; harness enforcement that an assigned task left the ready set (`Done` or
-  `Blocked`) before its branch is eligible for integration; the `agent` push credential
-  in any environment where publishing staging is not already authorized.
+  `status`/`promote`/`discard` CLI commands; runner-side task-state enforcement that
+  only branches whose assigned task is `Done` are eligible for integration. *Still
+  open:* TUI surfacing; richer summaries; the `agent` push credential in any
+  environment where publishing staging is not already authorized.
 - **Phase 2 — only if needed:** stronger pre-filters; continuation/handoff for long
   tasks (a continuation note on the task; next dispatch resumes).
 - **Phase 3 — only if Backlog limits bite:** revisit beads for collision-free parallel
@@ -144,10 +144,9 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
 - **Green ≠ correct.** A semantic conflict no test covers can reach staging; the UI test
   before promote is the human backstop, at the outcome level.
 - **`touches` is a hint; agents may stray.** Accepted for now (scope guard deferred).
-- **Task-state trust is still prompt-level.** A real two-task smoke showed the
-  worktree/agent/push/integrate/gate/publish path works end to end, but also showed why
-  the harness should verify assigned tasks are not still `To Do` before integration:
-  one agent committed code while leaving its Backlog task ready. The prompt now makes
-  Done/Blocked mandatory; code enforcement is the next hardening step.
+- **Task-state is enforced, not just prompted.** A worker branch is only eligible for
+  integration after the assigned task is `Done` in that worker worktree. `To Do`, `In
+  Progress`, `Blocked`, or unreadable task state is treated as a failed worker run, so
+  partial or unclassified work does not land on staging.
 - **Throughput trade.** Heavy overlap serializes; conflicts cost a re-run. That's the
   correct trade — parallelism only where areas are genuinely independent.

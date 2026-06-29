@@ -30,6 +30,7 @@ function makeDeps(ready: TaskMeta[], over: Partial<ParallelDeps> = {}) {
 			ran.push(t)
 			return true
 		}),
+		readTaskStatus: vi.fn(async () => 'Done'),
 		removeWorktree: vi.fn(async () => {}),
 		log: vi.fn(),
 		...over,
@@ -74,6 +75,27 @@ describe('runParallel', () => {
 		expect(out).toContainEqual({ id: 'A', ok: false })
 		expect(out).toContainEqual({ id: 'B', ok: true })
 		expect(deps.removeWorktree).toHaveBeenCalledTimes(2) // cleanup ran for both
+	})
+
+	it('does not integrate a branch whose assigned task is still ready', async () => {
+		const readTaskStatus = vi.fn(async () => 'To Do')
+		const { deps } = makeDeps([task('A')], { readTaskStatus })
+		const out = await runParallel({ ...defaultConfig(), maxParallel: 2 }, deps)
+		expect(out).toEqual([{ id: 'A', ok: false }])
+		expect(deps.log).toHaveBeenCalledWith(
+			expect.stringContaining('status is To Do'),
+		)
+	})
+
+	it('does not integrate blocked or unknown-status branches', async () => {
+		const readTaskStatus = vi
+			.fn()
+			.mockResolvedValueOnce('Blocked')
+			.mockResolvedValueOnce(undefined)
+		const { deps } = makeDeps([task('A'), task('B')], { readTaskStatus })
+		const out = await runParallel({ ...defaultConfig(), maxParallel: 2 }, deps)
+		expect(out).toContainEqual({ id: 'A', ok: false })
+		expect(out).toContainEqual({ id: 'B', ok: false })
 	})
 
 	it('reports ok:false and skips the run when the worktree cannot be created', async () => {

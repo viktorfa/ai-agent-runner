@@ -18,6 +18,11 @@ export interface ParallelDeps {
 	addWorktree(taskId: string): Promise<string>
 	/** Run the single task to completion in its worktree; resolve true on success. */
 	runTask(input: { task: string; workspace: string }): Promise<boolean>
+	/** Read the assigned task metadata from its worktree after the agent commits. */
+	readTaskStatus(input: {
+		task: string
+		workspace: string
+	}): Promise<string | undefined>
 	/** Tear down the task's worktree — its branch persists for the integrator. */
 	removeWorktree(taskId: string): Promise<void>
 	log(line: string): void
@@ -73,7 +78,18 @@ async function dispatchOne(
 		return { id, ok: false }
 	}
 	try {
-		return { id, ok: await deps.runTask({ task: id, workspace }) }
+		if (!(await deps.runTask({ task: id, workspace }))) {
+			return { id, ok: false }
+		}
+		const status = await deps.readTaskStatus({ task: id, workspace })
+		if (status !== 'Done') {
+			deps.log(
+				`task ${id} finished but status is ${status ?? 'unknown'}; ` +
+					'not integrating branch',
+			)
+			return { id, ok: false }
+		}
+		return { id, ok: true }
 	} catch (err) {
 		deps.log(`task ${id} threw: ${errText(err)}`)
 		return { id, ok: false }

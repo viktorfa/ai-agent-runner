@@ -92,16 +92,13 @@ stack tasks — merge to base periodically), chosen per repo.
 to `maxParallel` ready `risk:low` tasks with non-overlapping `area:*` labels, runs
 each in its own worktree on `auto/<task-id>`, then folds green branches into
 `auto/work` one at a time. `config.gates` (default `.agent/gates.sh`) runs after each
-merge; a textual conflict or red gate parks the task instead of landing it.
-Successful staging is published to `origin/auto/work` with force-with-lease. `promote`
-fast-forwards the base branch to published staging and pushes it normally; `discard`
-resets only staging back to base.
-
-Known operational gap: the harness currently trusts the agent's success signal after
-the branch commit. A real two-task smoke showed the merge/gate/publish path works, but
-one agent left its Backlog task as `To Do` while still committing the code. Until the
-harness enforces "assigned task is no longer ready" post-run, prompts and review should
-require agents to mark their task `Done` or `Blocked`.
+merge; a textual conflict or red gate parks the task instead of landing it. After the
+worker run, the runner reads the assigned Backlog task from that worker worktree and
+only exposes the branch to integration if the task status is `Done`. `To Do`, `In
+Progress`, `Blocked`, or unreadable task state is treated as a failed worker run and
+the branch is not merged. Successful staging is published to `origin/auto/work` with
+force-with-lease. `promote` fast-forwards the base branch to published staging and
+pushes it normally; `discard` resets only staging back to base.
 
 Worker prompts should follow the same basic lifecycle as mature target repos such as
 Room Planner: read the repo instructions and full task, claim the assigned task, keep

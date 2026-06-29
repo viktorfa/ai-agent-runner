@@ -460,6 +460,10 @@ export function makeParallelDeps(
 			return outcomes.length > 0 && outcomes.every((o) => o.result.ok)
 		},
 
+		readTaskStatus: async ({ task, workspace }) => {
+			return (await readTaskMeta(workspace, task))?.status
+		},
+
 		removeWorktree: (id) =>
 			serializeGit(async () => {
 				await exec('git', worktreeRemoveArgs(worktreePath(id)), cwd, {
