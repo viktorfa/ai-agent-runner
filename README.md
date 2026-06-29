@@ -52,9 +52,11 @@ tui/                  operator dashboard (Bubble Tea v2, separate Go module); se
   (`io.ts`), so a repo using the runner must use **Backlog.md + pnpm** (or this
   becomes a `.agent/` hook later).
 - **Parallel agents in one repo:** when `.agent/config.json` sets `maxParallel > 1`,
-  `orchestrate --drain` dispatches disjoint `risk:low` tasks into separate worktrees,
-  pushes task branches, then serializes them through a gated merge into `auto/work`.
-  The director tests staging and explicitly promotes or discards it; see
+  `orchestrate --drain` dispatches ready tasks into separate worktrees (any task except
+  an explicit `risk:needs-human` opt-out), pushes task branches, then serializes them
+  through a gated merge into `auto/work`. Optional `area:*` labels prevent conflicts
+  between overlapping tasks; unlabeled tasks just run, and the gated integrator catches
+  any conflict. The director tests staging and explicitly promotes or discards it; see
   `docs/PARALLEL_AGENTS.md`.
 
 ## Commands
@@ -89,9 +91,12 @@ per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge bas
 stack tasks — merge to base periodically), chosen per repo.
 
 **Parallel staging** (`.agent/config.json` → `maxParallel > 1`): a drain selects up
-to `maxParallel` ready `risk:low` tasks with non-overlapping `area:*` labels, runs
-each in its own worktree on `auto/<task-id>`, then folds green branches into
-`auto/work` one at a time. `config.gates` (default `.agent/gates.sh`) runs after each
+to `maxParallel` ready tasks — any task except an explicit `risk:needs-human` opt-out
+or one with an unmet `blocked-by` — and runs each in its own worktree on
+`auto/<task-id>`, then folds green branches into `auto/work` one at a time. Optional
+`area:*` labels are a conflict-prevention lease: tasks that declare overlapping areas
+are serialized; unlabeled tasks run freely and rely on the gated merge to catch any
+conflict. `config.gates` (default `.agent/gates.sh`) runs after each
 merge; a textual conflict or red gate parks the task instead of landing it. After the
 worker run, the runner reads the assigned Backlog task from that worker worktree and
 only exposes the branch to integration if the task status is `Done`. `To Do`, `In

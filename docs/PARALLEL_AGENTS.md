@@ -38,7 +38,7 @@ automated checks + genuinely low-risk scoping + the human testing the integrated
 ## The model
 
 ```
-ready task (risk: low)
+ready task (anything except risk: needs-human)
   → git worktree + branch auto/<task-id>              isolation: no shared working tree
   → agent works ONE task, self-checks vs acceptance criteria
   → per-branch gates (lint / typecheck / test / build / qa)
@@ -71,14 +71,19 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
    hooks must each bind a unique port. (Previously deferrable; parallelism makes it
    real — a prerequisite, not an extra.)
 3. **Task metadata** — the steering *and* scheduling substrate, on each task:
-   - `risk: low | needs-human` — routing (executor pulls only `low`).
-   - `touches` — declared files/areas; the **lease set** for conflict prevention.
+   - `risk: needs-human` — an explicit **opt-out**: the director will do this one in
+     their own session, so the executor skips it. Any other (or no) risk is dispatchable
+     — the executor takes ready work by default, it doesn't require a `risk:low` label.
+   - `area:*` — declared files/areas; an **optional** lease for conflict prevention.
    - `blocked-by` — dependency edges; only unblocked tasks are dispatched.
    - acceptance criteria + definition-of-done — the agent self-verifies against these.
-4. **Area leases (conflict *prevention* — the primary defense).** The scheduler will
-   not run two tasks concurrently whose `touches` overlap; overlapping work degrades to
-   sequential. Concurrently-running branches therefore edit disjoint areas and don't
-   textually conflict at merge. Decomposition quality is what actually gates throughput.
+4. **Area leases (conflict *prevention*, opt-in).** When tasks *declare* areas, the
+   scheduler won't run two concurrently whose areas overlap, so declared work edits
+   disjoint areas and doesn't textually conflict at merge. Labelling is **not** required
+   to dispatch: a task with no declared area just runs, and a conflict between two such
+   tasks is caught downstream by the gated integrator (§5–6) — labelling buys fewer
+   re-runs, not permission to run. Decomposition quality still governs throughput:
+   undeclared overlap trades a cheap lease for a costlier park-and-redo.
 5. **Serialized gated integrator (single-flight).** Merges one branch at a time into
    `auto/work` and **re-runs the full gates on the combined tree** — the only thing
    that catches *semantic* conflicts git sees no marker for (A renames, B calls it from

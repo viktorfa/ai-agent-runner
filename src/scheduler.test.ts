@@ -17,13 +17,9 @@ const ids = (ts: TaskMeta[]): string[] => ts.map((t) => t.id)
 const none: ReadonlySet<string> = new Set()
 
 describe('selectDispatchable', () => {
-	it('dispatches risk:low tasks in disjoint areas up to capacity', () => {
+	it('dispatches ready tasks up to capacity', () => {
 		const out = selectDispatchable({
-			candidates: [
-				task('A', { areas: ['x'] }),
-				task('B', { areas: ['y'] }),
-				task('C', { areas: ['z'] }),
-			],
+			candidates: [task('A'), task('B'), task('C')],
 			busyAreas: none,
 			pending: none,
 			capacity: 2,
@@ -31,21 +27,37 @@ describe('selectDispatchable', () => {
 		expect(ids(out)).toEqual(['A', 'B'])
 	})
 
-	it('excludes needs-human and unspecified-risk tasks', () => {
+	it('takes unlabeled tasks (no risk, no area) concurrently', () => {
+		// The common case: a board whose tasks declare neither risk nor area still
+		// parallelizes — labelling is not a prerequisite for dispatch.
 		const out = selectDispatchable({
 			candidates: [
-				task('A', { risk: 'needs-human', areas: ['x'] }),
-				task('B', { risk: undefined, areas: ['y'] }),
-				task('C', { areas: ['z'] }),
+				task('A', { risk: undefined, areas: [] }),
+				task('B', { risk: undefined, areas: [] }),
+				task('C', { risk: undefined, areas: [] }),
+			],
+			busyAreas: none,
+			pending: none,
+			capacity: 3,
+		})
+		expect(ids(out)).toEqual(['A', 'B', 'C'])
+	})
+
+	it('holds back only an explicit needs-human task', () => {
+		const out = selectDispatchable({
+			candidates: [
+				task('A', { risk: 'needs-human' }),
+				task('B', { risk: undefined }),
+				task('C', { risk: 'low' }),
 			],
 			busyAreas: none,
 			pending: none,
 			capacity: 5,
 		})
-		expect(ids(out)).toEqual(['C'])
+		expect(ids(out)).toEqual(['B', 'C']) // needs-human stays off; the rest run
 	})
 
-	it('serializes tasks whose areas overlap each other or in-flight work', () => {
+	it('serializes tasks whose DECLARED areas overlap each other or in-flight work', () => {
 		expect(
 			ids(
 				selectDispatchable({
@@ -58,7 +70,7 @@ describe('selectDispatchable', () => {
 					capacity: 5,
 				}),
 			),
-		).toEqual(['A']) // B overlaps A's lease
+		).toEqual(['A']) // B overlaps A's declared lease
 
 		expect(
 			ids(
@@ -72,30 +84,9 @@ describe('selectDispatchable', () => {
 		).toEqual([]) // x already leased by an in-flight agent
 	})
 
-	it('holds a task with an unmet blocker, releases it once the blocker clears', () => {
-		expect(
-			ids(
-				selectDispatchable({
-					candidates: [task('B', { areas: ['y'], blockedBy: ['A'] })],
-					busyAreas: none,
-					pending: new Set(['A']),
-					capacity: 5,
-				}),
-			),
-		).toEqual([])
-		expect(
-			ids(
-				selectDispatchable({
-					candidates: [task('B', { areas: ['y'], blockedBy: ['A'] })],
-					busyAreas: none,
-					pending: none,
-					capacity: 5,
-				}),
-			),
-		).toEqual(['B'])
-	})
-
-	it('treats an unknown footprint (no areas) as needing exclusivity', () => {
+	it('does not let a no-area task block, or be blocked by, declared work', () => {
+		// A declares nothing → no lease; it runs alongside B's declared area, and
+		// alongside in-flight work, instead of demanding exclusivity.
 		expect(
 			ids(
 				selectDispatchable({
@@ -105,7 +96,7 @@ describe('selectDispatchable', () => {
 					capacity: 5,
 				}),
 			),
-		).toEqual(['A']) // A holds the wildcard lease; B can't join this round
+		).toEqual(['A', 'B'])
 
 		expect(
 			ids(
@@ -116,13 +107,36 @@ describe('selectDispatchable', () => {
 					capacity: 5,
 				}),
 			),
-		).toEqual([]) // can't start an unknown-footprint task while anything is in flight
+		).toEqual(['A'])
+	})
+
+	it('holds a task with an unmet blocker, releases it once the blocker clears', () => {
+		expect(
+			ids(
+				selectDispatchable({
+					candidates: [task('B', { blockedBy: ['A'] })],
+					busyAreas: none,
+					pending: new Set(['A']),
+					capacity: 5,
+				}),
+			),
+		).toEqual([])
+		expect(
+			ids(
+				selectDispatchable({
+					candidates: [task('B', { blockedBy: ['A'] })],
+					busyAreas: none,
+					pending: none,
+					capacity: 5,
+				}),
+			),
+		).toEqual(['B'])
 	})
 
 	it('respects capacity and returns nothing at zero capacity', () => {
 		expect(
 			selectDispatchable({
-				candidates: [task('A', { areas: ['x'] })],
+				candidates: [task('A')],
 				busyAreas: none,
 				pending: none,
 				capacity: 0,

@@ -30,13 +30,14 @@ export interface ParallelDeps {
 
 /**
  * Dispatch up to `maxParallel` ready tasks concurrently, each in its own git worktree
- * on its own branch (docs/PARALLEL_AGENTS.md). The scheduler picks a conflict-free,
- * risk:low set — area leases keep concurrent work disjoint — and each task is isolated
- * so one failing or slow run never blocks the others. The branches are left for the
- * integrator to merge.
+ * on its own branch (docs/PARALLEL_AGENTS.md). The scheduler takes any ready task —
+ * skipping only an explicit `needs-human` opt-out or an unmet blocker — and applies area
+ * leases only where tasks declare them; each task is isolated so one failing or slow run
+ * never blocks the others. The branches are left for the integrator to merge (which is
+ * what catches conflicts between tasks that didn't declare disjoint areas).
  *
  * One planning pass = one watcher poll: work held back this round (a blocker not yet
- * Done, or an overlapping area) is picked up on a later poll once it frees.
+ * Done, or an overlapping declared area) is picked up on a later poll once it frees.
  */
 export async function runParallel(
 	config: AgentConfig,
@@ -55,7 +56,7 @@ export async function runParallel(
 		capacity: config.maxParallel,
 	})
 	if (chosen.length === 0) {
-		deps.log('no dispatchable low-risk tasks ready')
+		deps.log('no dispatchable tasks ready')
 		return []
 	}
 	deps.log(
