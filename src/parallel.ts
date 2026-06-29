@@ -10,8 +10,16 @@ export interface TaskOutcome {
 
 /** IO the parallel planner needs, injected so the dispatch logic is unit-testable. */
 export interface ParallelDeps {
-	/** Refresh origin so each worktree branches from the latest base. */
+	/** Refresh origin's refs. */
 	fetch(): Promise<void>
+	/**
+	 * Prepare the accumulating staging branch (auto/work) and leave the checkout on it,
+	 * absorbing newly-filed tasks from origin/<base>. Everything downstream keys off this
+	 * one branch: the board is read from it and each worktree is cut from it, so a
+	 * dispatched task is one the agent will actually find, and a completed task (its Done
+	 * recorded on staging) won't be re-dispatched. `master` advances only on `promote`.
+	 */
+	prepareStaging(): Promise<void>
 	/** Ready (To Do) tasks with their parsed metadata, highest priority first. */
 	readReadyTasks(): Promise<TaskMeta[]>
 	/** Create the task's isolated worktree; resolve its workspace path. */
@@ -29,11 +37,12 @@ export interface ParallelDeps {
 }
 
 /**
- * Dispatch up to `maxParallel` ready tasks concurrently, each in its own git worktree
- * on its own branch (docs/PARALLEL_AGENTS.md). The scheduler takes any ready task —
- * skipping only an explicit `needs-human` opt-out or an unmet blocker — and applies area
- * leases only where tasks declare them; each task is isolated so one failing or slow run
- * never blocks the others. The branches are left for the integrator to merge (which is
+ * Dispatch up to `maxParallel` ready tasks concurrently (capacity 1 is just the
+ * sequential drain) — each in its own git worktree cut from the prepared staging branch
+ * (docs/PARALLEL_AGENTS.md). The scheduler takes any ready task — skipping only an
+ * explicit `needs-human` opt-out or an unmet blocker — and applies area leases only where
+ * tasks declare them; each task is isolated so one failing or slow run never blocks the
+ * others. The branches are left for the integrator to fold back into staging (which is
  * what catches conflicts between tasks that didn't declare disjoint areas).
  *
  * One planning pass = one watcher poll: work held back this round (a blocker not yet
@@ -44,6 +53,7 @@ export async function runParallel(
 	deps: ParallelDeps,
 ): Promise<TaskOutcome[]> {
 	await deps.fetch()
+	await deps.prepareStaging()
 	const candidates = await deps.readReadyTasks()
 	// A candidate blocked by another still-pending task waits. We only see the ready
 	// set here, so this catches a blocker that is itself ready; an in-progress blocker

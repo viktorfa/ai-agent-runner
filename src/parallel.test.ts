@@ -21,6 +21,7 @@ function makeDeps(ready: TaskMeta[], over: Partial<ParallelDeps> = {}) {
 	const ran: string[] = []
 	const deps: ParallelDeps = {
 		fetch: vi.fn(async () => {}),
+		prepareStaging: vi.fn(async () => {}),
 		readReadyTasks: vi.fn(async () => ready),
 		addWorktree: vi.fn(async (id: string) => {
 			added.push(id)

@@ -86,10 +86,10 @@ async function main(): Promise<void> {
 	const opts = resolveRunOptions(args, config)
 	sink(`# assistant ${opts.assistant}/${opts.role}\n`)
 
-	// A drain opts into parallel agents when the repo's config raises maxParallel;
-	// otherwise it's the sequential drain (and `run` is always sequential).
-	const parallel =
-		command === 'orchestrate' && !!opts.drain && config.maxParallel > 1
+	// A drain always runs through the parallel dispatch path — it's the single drain
+	// model. maxParallel just sets how many tasks run at once (1 = one at a time).
+	// A non-drain orchestrate (and `run`) stays on the sequential single-task path.
+	const parallel = command === 'orchestrate' && !!opts.drain
 
 	try {
 		let count: number

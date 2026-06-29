@@ -38,8 +38,9 @@ automated checks + genuinely low-risk scoping + the human testing the integrated
 ## The model
 
 ```
+prepare auto/work (resume staging; merge in newly-filed tasks from base)
 ready task (anything except risk: needs-human)
-  → git worktree + branch auto/<task-id>              isolation: no shared working tree
+  → git worktree + branch auto/<task-id> cut from auto/work   isolation: no shared tree
   → agent works ONE task, self-checks vs acceptance criteria
   → per-branch gates (lint / typecheck / test / build / qa)
   → serialized merge into STAGING (auto/work): one at a time,
@@ -54,9 +55,13 @@ risk: needs-human  →  not pulled here; left for the director's local session
 `master` stays clean. The executor runs free on `auto/work`. Promotion to `master` is
 a deliberate human act at the *outcome* level, not diff review.
 
-This is a shift for `orchestrate.ts`: from "drain → shared `auto/work`" (sequential)
-to "parallel dispatch → branch-per-task → serialized gated merge." `workBranchMode`'s
-per-run reset/accumulate is superseded here by per-task branches off `master`.
+The drain is *always* this parallel pass — `maxParallel` only sets how many tasks run at
+once (`1` = one worktree at a time, the old "sequential drain"). Each per-task branch is
+cut from the prepared `auto/work`, **not** from `master`: board *and* code accumulate on
+`auto/work`, so a task filed last round (recorded `Done` on staging) isn't re-dispatched,
+and `master` advances only on `promote`. Newly-filed tasks reach the drain by merging
+`origin/<base>` into `auto/work` each pass. `workBranchMode`'s per-run reset/accumulate is
+superseded here by this single accumulating staging branch.
 
 ## Mechanisms (the know-how)
 

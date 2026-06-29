@@ -51,13 +51,15 @@ tui/                  operator dashboard (Bubble Tea v2, separate Go module); se
 - **Board:** the runner queries readiness with `pnpm exec backlog task list`
   (`io.ts`), so a repo using the runner must use **Backlog.md + pnpm** (or this
   becomes a `.agent/` hook later).
-- **Parallel agents in one repo:** when `.agent/config.json` sets `maxParallel > 1`,
-  `orchestrate --drain` dispatches ready tasks into separate worktrees (any task except
-  an explicit `risk:needs-human` opt-out), pushes task branches, then serializes them
-  through a gated merge into `auto/work`. Optional `area:*` labels prevent conflicts
-  between overlapping tasks; unlabeled tasks just run, and the gated integrator catches
-  any conflict. The director tests staging and explicitly promotes or discards it; see
-  `docs/PARALLEL_AGENTS.md`.
+- **Parallel agents in one repo:** `orchestrate --drain` always dispatches through the
+  parallel path — `maxParallel` just sets how many tasks run at once (`1` = one at a
+  time). It prepares the accumulating `auto/work` staging branch (absorbing newly-filed
+  tasks from the base), cuts each ready task its own worktree *from that branch* (any
+  task except an explicit `risk:needs-human` opt-out), then serializes the green ones
+  through a gated merge back into `auto/work`. Board *and* code accumulate on
+  `auto/work`; the base branch advances only when the director `promote`s. Optional
+  `area:*` labels prevent conflicts between overlapping tasks; unlabeled tasks just run,
+  and the gated integrator catches any conflict. See `docs/PARALLEL_AGENTS.md`.
 
 ## Commands
 ```bash
@@ -69,7 +71,7 @@ pnpm lint           # biome check .
 # one session (fetch nothing; just run the agent against the current tree):
 bin/agent-runner run --assistant codex --workspace "$PWD" --task TASK-12
 
-# a full run (sequential unless maxParallel > 1 in .agent/config.json):
+# a full run (drains the board; maxParallel in .agent/config.json sets concurrency):
 bin/agent-runner orchestrate --workspace "$PWD" \
   --proxy http://127.0.0.1:3128 --drain --force
 
@@ -90,10 +92,12 @@ machine binding (path/user/proxy); `role` is per-dispatch (default `dev`).
 per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge base in,
 stack tasks — merge to base periodically), chosen per repo.
 
-**Parallel staging** (`.agent/config.json` → `maxParallel > 1`): a drain selects up
-to `maxParallel` ready tasks — any task except an explicit `risk:needs-human` opt-out
-or one with an unmet `blocked-by` — and runs each in its own worktree on
-`auto/<task-id>`, then folds green branches into `auto/work` one at a time. Optional
+**Parallel staging** (`.agent/config.json` → `maxParallel`): a drain prepares the
+`auto/work` staging branch, then selects up to `maxParallel` ready tasks — any task
+except an explicit `risk:needs-human` opt-out or one with an unmet `blocked-by` — and
+runs each in its own worktree cut *from `auto/work`* (so the agent sees the accumulated
+board + code) on `auto/<task-id>`, then folds green branches back into `auto/work` one
+at a time. `maxParallel: 1` just means one worktree at a time on that same path. Optional
 `area:*` labels are a conflict-prevention lease: tasks that declare overlapping areas
 are serialized; unlabeled tasks run freely and rely on the gated merge to catch any
 conflict. `config.gates` (default `.agent/gates.sh`) runs after each

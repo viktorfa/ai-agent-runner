@@ -66,15 +66,17 @@ export function taskBranch(taskId: string): string {
 }
 
 /**
- * Add a worktree at `path` checked out to a fresh `branch` based at origin/<base>.
- * `-B` resets the branch if it already exists, so a re-dispatch starts clean.
+ * Add a worktree at `path` on a fresh `branch` cut from `baseRef`. `-B` resets the
+ * branch if it already exists, so a re-dispatch starts clean. `baseRef` is a full ref:
+ * the local staging branch `auto/work` (so the agent gets the accumulated board + code),
+ * not necessarily `origin/<base>`.
  */
 export function worktreeAddArgs(
 	path: string,
 	branch: string,
-	baseBranch: string,
+	baseRef: string,
 ): string[] {
-	return ['worktree', 'add', '-B', branch, path, `origin/${baseBranch}`]
+	return ['worktree', 'add', '-B', branch, path, baseRef]
 }
 
 /** Remove a worktree, discarding its working tree (the branch it built persists). */

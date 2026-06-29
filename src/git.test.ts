@@ -98,16 +98,16 @@ describe('worktree args', () => {
 		expect(taskBranch('TASK-136')).toBe('auto/task-136')
 	})
 
-	it('worktreeAddArgs adds a worktree on a reset branch off origin/base', () => {
+	it('worktreeAddArgs adds a worktree on a reset branch cut from a base ref', () => {
 		expect(
-			worktreeAddArgs('/w/.worktrees/TASK-1', 'auto/task-1', 'master'),
+			worktreeAddArgs('/w/.worktrees/TASK-1', 'auto/task-1', 'auto/work'),
 		).toEqual([
 			'worktree',
 			'add',
 			'-B',
 			'auto/task-1',
 			'/w/.worktrees/TASK-1',
-			'origin/master',
+			'auto/work',
 		])
 	})
 

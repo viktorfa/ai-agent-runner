@@ -8,9 +8,6 @@ const tasks = (...ids: string[]) =>
 function makeDeps(over: Partial<IntegrateDeps> = {}) {
 	const calls: string[] = []
 	const deps: IntegrateDeps = {
-		prepareStaging: vi.fn(async () => {
-			calls.push('prepare')
-		}),
 		mergeBranch: vi.fn(async (b: string) => {
 			calls.push(`merge ${b}`)
 			return 'merged' as const
@@ -34,11 +31,11 @@ function makeDeps(over: Partial<IntegrateDeps> = {}) {
 }
 
 describe('integrate', () => {
-	it('does nothing (not even prepare staging) with no tasks', async () => {
-		const { deps } = makeDeps()
+	it('does nothing with no tasks', async () => {
+		const { deps, calls } = makeDeps()
 		const out = await integrate([], deps)
 		expect(out).toEqual({ staged: [], parked: [] })
-		expect(deps.prepareStaging).not.toHaveBeenCalled()
+		expect(calls).toEqual([])
 	})
 
 	it('lands clean branches in order, gating after each merge', async () => {
@@ -46,7 +43,6 @@ describe('integrate', () => {
 		const out = await integrate(tasks('TASK-1', 'TASK-2'), deps)
 		expect(out).toEqual({ staged: ['TASK-1', 'TASK-2'], parked: [] })
 		expect(calls).toEqual([
-			'prepare',
 			'merge auto/task-1',
 			'gates',
 			'merge auto/task-2',

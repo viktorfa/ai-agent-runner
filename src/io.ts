@@ -336,37 +336,6 @@ export function makeIntegrateDeps(
 	const cwd = opts.workspace
 	let preMergeSha = ''
 	return {
-		prepareStaging: async () => {
-			const exists = await exec(
-				'git',
-				remoteBranchExistsArgs(config.workBranch),
-				cwd,
-				{ quiet: true },
-			)
-			const from = exists.code === 0 ? config.workBranch : config.baseBranch
-			const { code, stderr } = await exec(
-				'git',
-				resetWorkBranchArgs(config.workBranch, from),
-				cwd,
-				{ sink },
-			)
-			if (code !== 0) {
-				throw new Error(
-					`failed to prepare staging ${config.workBranch}: ${stderr.trim() || '(none)'}`,
-				)
-			}
-			if (exists.code !== 0) return
-			const merged = await exec('git', mergeBaseArgs(config.baseBranch), cwd, {
-				sink,
-			})
-			if (merged.code === 0) return
-			await exec('git', mergeAbortArgs(), cwd, { quiet: true })
-			throw new Error(
-				`${config.workBranch} conflicts with origin/${config.baseBranch}; ` +
-					'resolve or discard staging before integrating new tasks.',
-			)
-		},
-
 		mergeBranch: async (branch) => {
 			const head = await exec('git', headShaArgs(), cwd, { quiet: true })
 			preMergeSha = head.stdout.trim()
@@ -443,6 +412,41 @@ export function makeParallelDeps(
 			await exec('git', fetchArgs(), cwd, { sink })
 		},
 
+		prepareStaging: async () => {
+			// Check out the staging branch (resume the published auto/work, or start it
+			// from base the first time) and absorb newly-filed tasks from origin/<base>.
+			// Leaves the main checkout on auto/work — the single ref the board read and the
+			// worktrees below both key off.
+			const exists = await exec(
+				'git',
+				remoteBranchExistsArgs(config.workBranch),
+				cwd,
+				{ quiet: true },
+			)
+			const from = exists.code === 0 ? config.workBranch : config.baseBranch
+			const { code, stderr } = await exec(
+				'git',
+				resetWorkBranchArgs(config.workBranch, from),
+				cwd,
+				{ sink },
+			)
+			if (code !== 0) {
+				throw new Error(
+					`failed to prepare staging ${config.workBranch}: ${stderr.trim() || '(none)'}`,
+				)
+			}
+			if (exists.code !== 0) return // started fresh from base; nothing to absorb
+			const merged = await exec('git', mergeBaseArgs(config.baseBranch), cwd, {
+				sink,
+			})
+			if (merged.code === 0) return
+			await exec('git', mergeAbortArgs(), cwd, { quiet: true })
+			throw new Error(
+				`${config.workBranch} conflicts with origin/${config.baseBranch}; ` +
+					'resolve or discard staging before draining.',
+			)
+		},
+
 		readReadyTasks: async () => {
 			const ids = await readReadyTaskIds(cwd)
 			const metas = await Promise.all(ids.map((id) => readTaskMeta(cwd, id)))
@@ -455,16 +459,11 @@ export function makeParallelDeps(
 				// Clear any leftover from a crashed run so `worktree add` starts clean.
 				await exec('git', worktreeRemoveArgs(path), cwd, { quiet: true })
 				await exec('git', worktreePruneArgs(), cwd, { quiet: true })
-				const exists = await exec(
-					'git',
-					remoteBranchExistsArgs(config.workBranch),
-					cwd,
-					{ quiet: true },
-				)
-				const from = exists.code === 0 ? config.workBranch : config.baseBranch
+				// Cut from the local staging branch prepareStaging() just built, so the
+				// agent sees the accumulated board + code (its assigned task is present).
 				const { code, stderr } = await exec(
 					'git',
-					worktreeAddArgs(path, taskBranch(id), from),
+					worktreeAddArgs(path, taskBranch(id), config.workBranch),
 					cwd,
 					{ sink },
 				)
@@ -483,6 +482,9 @@ export function makeParallelDeps(
 				task,
 				drain: false,
 				iterations: 1,
+				// The task branch is folded into staging locally by the integrator, so it
+				// never needs publishing — and it's cut from local auto/work, not origin.
+				noPush: true,
 			}
 			const deps = makeOrchestrateDeps(taskOpts, config, sink)
 			await deps.runSetup()

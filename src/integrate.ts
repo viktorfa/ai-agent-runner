@@ -15,8 +15,6 @@ export interface IntegrationResult {
 
 /** IO the integrator needs, injected so the merge policy is unit-testable. */
 export interface IntegrateDeps {
-	/** Put staging (auto/work) at a clean base before any merge. */
-	prepareStaging(): Promise<void>
 	/**
 	 * Merge a task branch into staging. `merged` leaves it applied; `conflict`
 	 * means git couldn't auto-merge and the attempt was aborted, so staging is
@@ -46,6 +44,9 @@ export interface IntegrateDeps {
  * Parked tasks need a redo on the fresh base (a new dispatch off the updated staging);
  * we surface them rather than blind-resolving markers, which yields frankenmerges that
  * can pass tests yet be semantically wrong.
+ *
+ * Staging is already checked out and prepared by the dispatch pass (the worktrees were
+ * cut from it), so the integrator merges straight onto the current branch.
  */
 export async function integrate(
 	tasks: IntegrableTask[],
@@ -55,7 +56,6 @@ export async function integrate(
 	const parked: string[] = []
 	if (tasks.length === 0) return { staged, parked }
 
-	await deps.prepareStaging()
 	for (const { id, branch } of tasks) {
 		if ((await deps.mergeBranch(branch)) === 'conflict') {
 			deps.log(`parked ${id}: textual conflict merging ${branch} into staging`)
