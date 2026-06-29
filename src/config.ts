@@ -40,6 +40,12 @@ export interface AgentConfig {
 	 * run very long, silent commands.
 	 */
 	agentIdleTimeoutSec: number
+	/**
+	 * Max agents to run concurrently in this repo, each in its own git worktree on
+	 * its own task branch (see docs/PARALLEL_AGENTS.md). The default `1` is the
+	 * sequential drain — parallel dispatch is opt-in per repo by raising this.
+	 */
+	maxParallel: number
 }
 
 export function defaultConfig(): AgentConfig {
@@ -59,6 +65,7 @@ export function defaultConfig(): AgentConfig {
 			audit: '.agent/hooks/3d-audit.sh',
 		},
 		agentIdleTimeoutSec: 480,
+		maxParallel: 1,
 	}
 }
 
@@ -74,6 +81,7 @@ export function resolveConfig(partial: Partial<AgentConfig>): AgentConfig {
 		prompts: { ...d.prompts, ...partial.prompts },
 		hooks: { ...d.hooks, ...partial.hooks },
 		agentIdleTimeoutSec: partial.agentIdleTimeoutSec ?? d.agentIdleTimeoutSec,
+		maxParallel: partial.maxParallel ?? d.maxParallel,
 		...(partial.model !== undefined ? { model: partial.model } : {}),
 		...(partial.effort !== undefined ? { effort: partial.effort } : {}),
 	}

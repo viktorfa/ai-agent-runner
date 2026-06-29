@@ -5,8 +5,12 @@ import {
 	mergeBaseArgs,
 	remoteBranchExistsArgs,
 	resetWorkBranchArgs,
+	taskBranch,
 	unmergedCountArgs,
 	workBranchPushArgs,
+	worktreeAddArgs,
+	worktreePruneArgs,
+	worktreeRemoveArgs,
 } from './git'
 
 describe('workBranchPushArgs', () => {
@@ -63,5 +67,37 @@ describe('accumulate args', () => {
 
 	it('mergeAbortArgs aborts an in-progress merge', () => {
 		expect(mergeAbortArgs()).toEqual(['merge', '--abort'])
+	})
+})
+
+describe('worktree args', () => {
+	it('taskBranch namespaces a lowercase per-task branch', () => {
+		expect(taskBranch('TASK-136')).toBe('auto/task-136')
+	})
+
+	it('worktreeAddArgs adds a worktree on a reset branch off origin/base', () => {
+		expect(
+			worktreeAddArgs('/w/.worktrees/TASK-1', 'auto/task-1', 'master'),
+		).toEqual([
+			'worktree',
+			'add',
+			'-B',
+			'auto/task-1',
+			'/w/.worktrees/TASK-1',
+			'origin/master',
+		])
+	})
+
+	it('worktreeRemoveArgs force-removes a worktree', () => {
+		expect(worktreeRemoveArgs('/w/.worktrees/TASK-1')).toEqual([
+			'worktree',
+			'remove',
+			'--force',
+			'/w/.worktrees/TASK-1',
+		])
+	})
+
+	it('worktreePruneArgs prunes stale worktree bookkeeping', () => {
+		expect(worktreePruneArgs()).toEqual(['worktree', 'prune'])
 	})
 })

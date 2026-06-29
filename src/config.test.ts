@@ -42,6 +42,11 @@ describe('resolveConfig', () => {
 			resolveConfig({ agentIdleTimeoutSec: 900 }).agentIdleTimeoutSec,
 		).toBe(900)
 	})
+
+	it('defaults maxParallel to 1 (sequential) and lets it be raised', () => {
+		expect(defaultConfig().maxParallel).toBe(1)
+		expect(resolveConfig({ maxParallel: 4 }).maxParallel).toBe(4)
+	})
 })
 
 describe('promptPath', () => {

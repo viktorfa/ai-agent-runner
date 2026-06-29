@@ -44,3 +44,30 @@ export function mergeBaseArgs(baseBranch: string): string[] {
 export function mergeAbortArgs(): string[] {
 	return ['merge', '--abort']
 }
+
+/** Branch for an isolated single-task run (one task → one branch → one diff). */
+export function taskBranch(taskId: string): string {
+	return `auto/${taskId.toLowerCase()}`
+}
+
+/**
+ * Add a worktree at `path` checked out to a fresh `branch` based at origin/<base>.
+ * `-B` resets the branch if it already exists, so a re-dispatch starts clean.
+ */
+export function worktreeAddArgs(
+	path: string,
+	branch: string,
+	baseBranch: string,
+): string[] {
+	return ['worktree', 'add', '-B', branch, path, `origin/${baseBranch}`]
+}
+
+/** Remove a worktree, discarding its working tree (the branch it built persists). */
+export function worktreeRemoveArgs(path: string): string[] {
+	return ['worktree', 'remove', '--force', path]
+}
+
+/** Drop worktree bookkeeping for directories that no longer exist (post-crash hygiene). */
+export function worktreePruneArgs(): string[] {
+	return ['worktree', 'prune']
+}
