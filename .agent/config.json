@@ -1,6 +1,6 @@
 {
 	"assistant": "codex",
-	"model": "gpt-5.5-mini",
+	"model": "gpt-5.4-mini",
 	"effort": "low",
 	"baseBranch": "main",
 	"workBranch": "auto/work",
