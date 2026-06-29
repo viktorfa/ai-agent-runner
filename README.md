@@ -48,6 +48,10 @@ tui/                  operator dashboard (Bubble Tea v2, separate Go module); se
 - **Board:** the runner queries readiness with `pnpm exec backlog task list`
   (`io.ts`), so a repo using the runner must use **Backlog.md + pnpm** (or this
   becomes a `.agent/` hook later).
+- **Parallel agents in one repo** (planned, not yet built): worktree-isolated
+  branches, area leases for conflict prevention, a serialized gated merge to a staging
+  branch, and the director testing the UI instead of reviewing diffs — design + the
+  decisions behind it in `docs/PARALLEL_AGENTS.md`.
 
 ## Commands
 ```bash
