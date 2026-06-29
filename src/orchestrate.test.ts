@@ -43,6 +43,7 @@ function makeDeps(overrides?: {
 	const spawnAgent = vi.fn(async () => COMPLETED)
 	const deps: OrchestrateDeps = {
 		readPrompt: async () => 'BASE',
+		readTaskMeta: async () => null,
 		spawnAgent,
 		push,
 		readyCount: async () => overrides?.ready ?? 1,

@@ -1,6 +1,7 @@
 import { claudeAdapter } from './adapters/claude'
 import { codexAdapter } from './adapters/codex'
 import { assemblePrompt } from './prompt'
+import type { TaskMeta } from './task'
 import type { AgentAdapter, AgentResult, Assistant, RunOptions } from './types'
 
 const adapters: Record<Assistant, AgentAdapter> = {
@@ -37,6 +38,8 @@ export const AGENT_FAILURE_LIMIT = 2
 export interface RunDeps {
 	/** Read the base prompt for this assistant + role. */
 	readPrompt(): Promise<string>
+	/** Read an assigned task's metadata (criteria/docs/…) for the brief; null if unavailable. */
+	readTaskMeta(id: string): Promise<TaskMeta | null>
 	/** Spawn the agent, pipe `prompt` to stdin, resolve with captured stdout. */
 	spawnAgent(bin: string, argv: string[], prompt: string): Promise<string>
 	/** Push the work branch; resolve true on success. */
@@ -70,7 +73,9 @@ export async function runLoop(
 	deps: RunDeps,
 ): Promise<IterationOutcome[]> {
 	const adapter = adapters[opts.assistant]
-	const prompt = assemblePrompt(await deps.readPrompt(), opts.task)
+	const base = await deps.readPrompt()
+	const meta = opts.task ? await deps.readTaskMeta(opts.task) : null
+	const prompt = assemblePrompt({ base, task: opts.task, meta })
 	const argv = adapter.buildArgv(opts)
 	const outcomes: IterationOutcome[] = []
 

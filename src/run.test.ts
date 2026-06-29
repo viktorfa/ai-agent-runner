@@ -6,6 +6,7 @@ import {
 	type RunDeps,
 	runLoop,
 } from './run'
+import type { TaskMeta } from './task'
 import type { RunOptions } from './types'
 
 const COMPLETED = '{"type":"turn.completed"}'
@@ -27,15 +28,25 @@ function makeDeps(stdout: string, readyCount = vi.fn(async () => 0)) {
 	)
 	const push = vi.fn(async () => true)
 	const parkStuckTask = vi.fn(async () => 'TASK-STUCK' as string | null)
+	const readTaskMeta = vi.fn(async (_id: string) => null as TaskMeta | null)
 	const deps: RunDeps = {
 		readPrompt: async () => 'BASE PROMPT',
+		readTaskMeta,
 		spawnAgent,
 		push,
 		readyCount,
 		parkStuckTask,
 		log: () => {},
 	}
-	return { deps, spawnAgent, push, prompts, readyCount, parkStuckTask }
+	return {
+		deps,
+		spawnAgent,
+		push,
+		prompts,
+		readyCount,
+		parkStuckTask,
+		readTaskMeta,
+	}
 }
 
 describe('runLoop', () => {
@@ -52,6 +63,22 @@ describe('runLoop', () => {
 		const { deps, prompts } = makeDeps(COMPLETED)
 		await runLoop({ ...baseOpts, iterations: 1, task: 'TASK-9' }, deps)
 		expect(prompts[0]).toContain('TASK-9')
+	})
+
+	it('enriches the prompt with the task brief when metadata is available', async () => {
+		const { deps, prompts, readTaskMeta } = makeDeps(COMPLETED)
+		readTaskMeta.mockResolvedValueOnce({
+			id: 'TASK-9',
+			labels: [],
+			blockedBy: [],
+			documentation: ['docs/X.md'],
+			areas: [],
+			acceptanceCriteria: [{ text: 'must hold', done: false }],
+		})
+		await runLoop({ ...baseOpts, iterations: 1, task: 'TASK-9' }, deps)
+		expect(readTaskMeta).toHaveBeenCalledWith('TASK-9')
+		expect(prompts[0]).toContain('must hold')
+		expect(prompts[0]).toContain('docs/X.md')
 	})
 
 	it('does not push when noPush is set', async () => {

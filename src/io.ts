@@ -7,6 +7,7 @@ import { type AgentConfig, promptPath } from './config'
 import { workBranchPushArgs } from './git'
 import type { OrchestrateDeps } from './orchestrate'
 import type { RunDeps } from './run'
+import { parseTask, type TaskMeta } from './task'
 import type { RunOptions } from './types'
 
 /** Mirrors everything the run prints to a transcript file. */
@@ -182,6 +183,29 @@ async function parkStuckTask(
 	return top
 }
 
+/**
+ * A task's parsed metadata, or null if it can't be read. Backlog has no `--json`; its
+ * `--plain` view prints the source file path on its first line (`File: …`), which we
+ * read and parse. A missing task or unreadable file yields null, not a throw — the
+ * brief is best-effort, never a reason to fail the run.
+ */
+async function readTaskMeta(cwd: string, id: string): Promise<TaskMeta | null> {
+	const { code, stdout } = await exec(
+		'pnpm',
+		['exec', 'backlog', 'task', id, '--plain'],
+		cwd,
+		{ quiet: true },
+	)
+	if (code !== 0) return null
+	const file = /^File:\s*(.+)$/m.exec(stdout)
+	if (!file) return null
+	try {
+		return parseTask(await readFile(file[1].trim(), 'utf8'))
+	} catch {
+		return null
+	}
+}
+
 /** Real IO for `runLoop`: read the prompt, spawn the agent, push the branch. */
 export function makeDeps(
 	opts: RunOptions,
@@ -191,6 +215,8 @@ export function makeDeps(
 	const cwd = opts.workspace
 	return {
 		readPrompt: () => readFile(promptPath(cwd, config, opts.role), 'utf8'),
+
+		readTaskMeta: (id) => readTaskMeta(cwd, id),
 
 		spawnAgent: async (bin, argv, prompt) => {
 			const { stdout } = await exec(bin, argv, cwd, {
