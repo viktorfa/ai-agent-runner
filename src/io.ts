@@ -12,6 +12,7 @@ import {
 	worktreePruneArgs,
 	worktreeRemoveArgs,
 } from './git'
+import { createSerializer } from './mutex'
 import type { OrchestrateDeps } from './orchestrate'
 import type { ParallelDeps } from './parallel'
 import { type RunDeps, runLoop } from './run'
@@ -292,6 +293,10 @@ export function makeParallelDeps(
 ): ParallelDeps {
 	const cwd = opts.workspace
 	const worktreePath = (id: string) => join(cwd, WORKTREES_DIR, id)
+	// Worktree add/remove mutate the shared .git (config, refs) and race on
+	// .git/config.lock if run at once — serialize the git plumbing while the agent
+	// runs stay parallel.
+	const serializeGit = createSerializer()
 	return {
 		fetch: async () => {
 			await exec('git', fetchArgs(), cwd, { sink })
@@ -303,24 +308,25 @@ export function makeParallelDeps(
 			return metas.filter((m): m is TaskMeta => m !== null)
 		},
 
-		addWorktree: async (id) => {
-			const path = worktreePath(id)
-			// Clear any leftover from a crashed run so `worktree add` starts clean.
-			await exec('git', worktreeRemoveArgs(path), cwd, { quiet: true })
-			await exec('git', worktreePruneArgs(), cwd, { quiet: true })
-			const { code, stderr } = await exec(
-				'git',
-				worktreeAddArgs(path, taskBranch(id), config.baseBranch),
-				cwd,
-				{ sink },
-			)
-			if (code !== 0) {
-				throw new Error(
-					`worktree add failed for ${id}: ${stderr.trim() || '(none)'}`,
+		addWorktree: (id) =>
+			serializeGit(async () => {
+				const path = worktreePath(id)
+				// Clear any leftover from a crashed run so `worktree add` starts clean.
+				await exec('git', worktreeRemoveArgs(path), cwd, { quiet: true })
+				await exec('git', worktreePruneArgs(), cwd, { quiet: true })
+				const { code, stderr } = await exec(
+					'git',
+					worktreeAddArgs(path, taskBranch(id), config.baseBranch),
+					cwd,
+					{ sink },
 				)
-			}
-			return path
-		},
+				if (code !== 0) {
+					throw new Error(
+						`worktree add failed for ${id}: ${stderr.trim() || '(none)'}`,
+					)
+				}
+				return path
+			}),
 
 		runTask: async ({ task, workspace }) => {
 			const taskOpts: RunOptions = {
@@ -336,12 +342,13 @@ export function makeParallelDeps(
 			return outcomes.length > 0 && outcomes.every((o) => o.result.ok)
 		},
 
-		removeWorktree: async (id) => {
-			await exec('git', worktreeRemoveArgs(worktreePath(id)), cwd, {
-				quiet: true,
-			})
-			await exec('git', worktreePruneArgs(), cwd, { quiet: true })
-		},
+		removeWorktree: (id) =>
+			serializeGit(async () => {
+				await exec('git', worktreeRemoveArgs(worktreePath(id)), cwd, {
+					quiet: true,
+				})
+				await exec('git', worktreePruneArgs(), cwd, { quiet: true })
+			}),
 
 		log: (line) => {
 			process.stderr.write(`${line}\n`)
