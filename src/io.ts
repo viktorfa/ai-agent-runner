@@ -1,14 +1,25 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { parseReadyTaskIds } from './board'
 import { type AgentConfig, promptPath } from './config'
-import { workBranchPushArgs } from './git'
+import {
+	fetchArgs,
+	taskBranch,
+	workBranchPushArgs,
+	worktreeAddArgs,
+	worktreePruneArgs,
+	worktreeRemoveArgs,
+} from './git'
 import type { OrchestrateDeps } from './orchestrate'
-import type { RunDeps } from './run'
+import type { ParallelDeps } from './parallel'
+import { type RunDeps, runLoop } from './run'
 import { parseTask, type TaskMeta } from './task'
 import type { RunOptions } from './types'
+
+/** Where per-task worktrees live, relative to the repo root. */
+const WORKTREES_DIR = '.worktrees'
 
 /** Mirrors everything the run prints to a transcript file. */
 export type Sink = (text: string) => void
@@ -265,6 +276,76 @@ export function makeOrchestrateDeps(
 		git: (gitArgs) => exec('git', gitArgs, cwd, { sink }),
 		runSetup: async () => {
 			await exec('bash', [config.setup], cwd, { sink })
+		},
+	}
+}
+
+/**
+ * Real IO for `runParallel`: manage per-task worktrees under the repo, and run each
+ * assigned task in its worktree as a one-shot single-task orchestration (setup + a
+ * single-iteration run that pushes its branch).
+ */
+export function makeParallelDeps(
+	opts: RunOptions,
+	config: AgentConfig,
+	sink?: Sink,
+): ParallelDeps {
+	const cwd = opts.workspace
+	const worktreePath = (id: string) => join(cwd, WORKTREES_DIR, id)
+	return {
+		fetch: async () => {
+			await exec('git', fetchArgs(), cwd, { sink })
+		},
+
+		readReadyTasks: async () => {
+			const ids = await readReadyTaskIds(cwd)
+			const metas = await Promise.all(ids.map((id) => readTaskMeta(cwd, id)))
+			return metas.filter((m): m is TaskMeta => m !== null)
+		},
+
+		addWorktree: async (id) => {
+			const path = worktreePath(id)
+			// Clear any leftover from a crashed run so `worktree add` starts clean.
+			await exec('git', worktreeRemoveArgs(path), cwd, { quiet: true })
+			await exec('git', worktreePruneArgs(), cwd, { quiet: true })
+			const { code, stderr } = await exec(
+				'git',
+				worktreeAddArgs(path, taskBranch(id), config.baseBranch),
+				cwd,
+				{ sink },
+			)
+			if (code !== 0) {
+				throw new Error(
+					`worktree add failed for ${id}: ${stderr.trim() || '(none)'}`,
+				)
+			}
+			return path
+		},
+
+		runTask: async ({ task, workspace }) => {
+			const taskOpts: RunOptions = {
+				...opts,
+				workspace,
+				task,
+				drain: false,
+				iterations: 1,
+			}
+			const deps = makeOrchestrateDeps(taskOpts, config, sink)
+			await deps.runSetup()
+			const outcomes = await runLoop(taskOpts, deps)
+			return outcomes.length > 0 && outcomes.every((o) => o.result.ok)
+		},
+
+		removeWorktree: async (id) => {
+			await exec('git', worktreeRemoveArgs(worktreePath(id)), cwd, {
+				quiet: true,
+			})
+			await exec('git', worktreePruneArgs(), cwd, { quiet: true })
+		},
+
+		log: (line) => {
+			process.stderr.write(`${line}\n`)
+			sink?.(`${line}\n`)
 		},
 	}
 }

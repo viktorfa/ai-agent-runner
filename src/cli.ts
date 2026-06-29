@@ -1,8 +1,9 @@
 import { parseArgs, resolveRunOptions } from './args'
 import { loadConfig } from './config'
-import { makeDeps, makeOrchestrateDeps, openSink } from './io'
+import { makeDeps, makeOrchestrateDeps, makeParallelDeps, openSink } from './io'
 import { runLogPath } from './log-path'
 import { orchestrate } from './orchestrate'
+import { runParallel } from './parallel'
 import { type IterationOutcome, runLoop } from './run'
 
 async function main(): Promise<void> {
@@ -36,21 +37,38 @@ async function main(): Promise<void> {
 	sink(`# agent-runner ${command} — ${opts.assistant}/${opts.role}\n`)
 	process.stderr.write(`transcript: ${logFile}\n`)
 
-	try {
-		const outcomes: IterationOutcome[] =
-			command === 'orchestrate'
-				? await orchestrate(
-						opts,
-						config,
-						makeOrchestrateDeps(opts, config, sink),
-						args.force,
-					)
-				: await runLoop(opts, makeDeps(opts, config, sink))
+	// A drain opts into parallel agents when the repo's config raises maxParallel;
+	// otherwise it's the sequential drain (and `run` is always sequential).
+	const parallel =
+		command === 'orchestrate' && !!opts.drain && config.maxParallel > 1
 
-		const ok = outcomes.every((o) => o.result.ok)
-		const summary = `\nDone: ${outcomes.length} iteration(s), ${
-			ok ? 'ok' : 'with failures'
-		}.\n`
+	try {
+		let count: number
+		let ok: boolean
+		if (parallel) {
+			const results = await runParallel(
+				config,
+				makeParallelDeps(opts, config, sink),
+			)
+			count = results.length
+			ok = results.every((r) => r.ok)
+		} else {
+			const outcomes: IterationOutcome[] =
+				command === 'orchestrate'
+					? await orchestrate(
+							opts,
+							config,
+							makeOrchestrateDeps(opts, config, sink),
+							args.force,
+						)
+					: await runLoop(opts, makeDeps(opts, config, sink))
+			count = outcomes.length
+			ok = outcomes.every((o) => o.result.ok)
+		}
+
+		const summary = `\nDone: ${count} ${
+			parallel ? 'parallel task' : 'iteration'
+		}(s), ${ok ? 'ok' : 'with failures'}.\n`
 		process.stderr.write(summary)
 		sink(summary)
 		await close()

@@ -4,3 +4,6 @@ dist/
 # Go TUI build artifacts (source in tui/; built binary lives in bin/, see tui/README.md)
 /tui/tui
 /bin/tui
+
+# Per-task worktrees created by parallel dispatch
+.worktrees/
