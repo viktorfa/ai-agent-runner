@@ -1,9 +1,12 @@
 # Parallel agents in one repo
 
-Status: **design / not yet built.** This is the plan and the know-how; it captures
-the decisions (and the rejected alternatives) so they don't get re-litigated. When a
-phase ships, fold the operational details into the relevant README and trim this doc
-to what's still forward-looking.
+Status: **partially built.** The parallel dispatch core (worktree pool + area-lease
+scheduler) and the serialized gated integrator are implemented (`src/parallel.ts`,
+`src/integrate.ts`); cross-poll staging accumulation + director promote, and the TUI
+surfacing, are not yet (see *Phasing*). This doc captures the plan and the know-how —
+the decisions (and rejected alternatives) so they don't get re-litigated. When a phase
+ships, fold the operational details into the relevant README and trim this doc to
+what's still forward-looking.
 
 ## What the remote executor is for
 
@@ -112,6 +115,13 @@ per-run reset/accumulate is superseded here by per-task branches off `master`.
   per-task summaries + `promote`/`discard`. *Falsifiable:* two disjoint tasks run
   concurrently and both land green on staging; an overlapping pair serializes; a red
   merge is parked, not landed; `master` only advances on an explicit promote.
+  *Done so far:* worktree pool + cap + area-lease scheduler (`runParallel`); serialized
+  gated integrator (`integrate` — merges each green branch into `auto/work` one at a
+  time, re-runs `config.gates` on the combined tree, rolls back + parks a red or
+  conflicting merge). *Still open:* staging accumulates only within one pass (rebuilt
+  from base each run — no cross-poll accumulation yet); director `promote`/`discard`;
+  TUI surfacing; the `agent` push credential (the integrator works locally, so this
+  only blocks publishing staging).
 - **Phase 2 — only if needed:** stronger pre-filters; continuation/handoff for long
   tasks (a continuation note on the task; next dispatch resumes).
 - **Phase 3 — only if Backlog limits bite:** revisit beads for collision-free parallel

@@ -1,6 +1,14 @@
 import { parseArgs, resolveRunOptions } from './args'
 import { loadConfig } from './config'
-import { makeDeps, makeOrchestrateDeps, makeParallelDeps, openSink } from './io'
+import { taskBranch } from './git'
+import { integrate } from './integrate'
+import {
+	makeDeps,
+	makeIntegrateDeps,
+	makeOrchestrateDeps,
+	makeParallelDeps,
+	openSink,
+} from './io'
 import { runLogPath } from './log-path'
 import { orchestrate } from './orchestrate'
 import { runParallel } from './parallel'
@@ -45,13 +53,24 @@ async function main(): Promise<void> {
 	try {
 		let count: number
 		let ok: boolean
+		let extra = ''
 		if (parallel) {
 			const results = await runParallel(
 				config,
 				makeParallelDeps(opts, config, sink),
 			)
+			// Fold every branch that built green into staging, one at a time, re-gating
+			// the combined tree (docs/PARALLEL_AGENTS.md §5). A branch that conflicts or
+			// turns the gates red is parked, never landed.
+			const built = results
+				.filter((r) => r.ok)
+				.map((r) => ({ id: r.id, branch: taskBranch(r.id) }))
+			const integration = built.length
+				? await integrate(built, makeIntegrateDeps(opts, config, sink))
+				: { staged: [], parked: [] }
 			count = results.length
-			ok = results.every((r) => r.ok)
+			ok = results.every((r) => r.ok) && integration.parked.length === 0
+			extra = ` — staged ${integration.staged.length}, parked ${integration.parked.length}`
 		} else {
 			const outcomes: IterationOutcome[] =
 				command === 'orchestrate'
@@ -68,7 +87,7 @@ async function main(): Promise<void> {
 
 		const summary = `\nDone: ${count} ${
 			parallel ? 'parallel task' : 'iteration'
-		}(s), ${ok ? 'ok' : 'with failures'}.\n`
+		}(s)${extra}, ${ok ? 'ok' : 'with failures'}.\n`
 		process.stderr.write(summary)
 		sink(summary)
 		await close()

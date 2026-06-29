@@ -47,6 +47,11 @@ describe('resolveConfig', () => {
 		expect(defaultConfig().maxParallel).toBe(1)
 		expect(resolveConfig({ maxParallel: 4 }).maxParallel).toBe(4)
 	})
+
+	it('defaults the integrator gates script and lets it be overridden', () => {
+		expect(defaultConfig().gates).toBe('.agent/gates.sh')
+		expect(resolveConfig({ gates: 'make ci' }).gates).toBe('make ci')
+	})
 })
 
 describe('promptPath', () => {

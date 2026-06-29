@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
 	fetchArgs,
+	headShaArgs,
 	mergeAbortArgs,
 	mergeBaseArgs,
+	mergeTaskBranchArgs,
 	remoteBranchExistsArgs,
+	resetHardArgs,
 	resetWorkBranchArgs,
 	taskBranch,
 	unmergedCountArgs,
@@ -99,5 +102,24 @@ describe('worktree args', () => {
 
 	it('worktreePruneArgs prunes stale worktree bookkeeping', () => {
 		expect(worktreePruneArgs()).toEqual(['worktree', 'prune'])
+	})
+})
+
+describe('integrator args', () => {
+	it('headShaArgs reads the current HEAD sha', () => {
+		expect(headShaArgs()).toEqual(['rev-parse', 'HEAD'])
+	})
+
+	it('mergeTaskBranchArgs merges a task branch as a no-ff merge commit', () => {
+		expect(mergeTaskBranchArgs('auto/task-1')).toEqual([
+			'merge',
+			'--no-edit',
+			'--no-ff',
+			'auto/task-1',
+		])
+	})
+
+	it('resetHardArgs hard-resets to a sha', () => {
+		expect(resetHardArgs('abc123')).toEqual(['reset', '--hard', 'abc123'])
 	})
 })

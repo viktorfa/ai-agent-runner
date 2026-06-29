@@ -27,6 +27,13 @@ export interface AgentConfig {
 	workBranchMode: 'reset' | 'accumulate'
 	/** Workspace-prep hook (pnpm install, skillshare sync, …). */
 	setup: string
+	/**
+	 * The full quality gate the integrator runs on the combined staging tree after
+	 * each merge (lint + typecheck + test + build) — a workspace-relative script run
+	 * with bash, exit 0 iff green. Since no human reviews the diff, this is *the* gate:
+	 * a merge that turns it red is rolled back and the task parked (PARALLEL_AGENTS.md).
+	 */
+	gates: string
 	/** Loop prompt per role (workspace-relative). */
 	prompts: Record<LoopRole, string>
 	/** Repo-specific lifecycle hooks (workspace-relative). */
@@ -55,6 +62,7 @@ export function defaultConfig(): AgentConfig {
 		workBranch: 'auto/work',
 		workBranchMode: 'reset',
 		setup: '.agent/setup.sh',
+		gates: '.agent/gates.sh',
 		prompts: {
 			dev: '.agent/prompts/dev-loop.md',
 			qa: '.agent/prompts/qa-loop.md',
@@ -78,6 +86,7 @@ export function resolveConfig(partial: Partial<AgentConfig>): AgentConfig {
 		workBranch: partial.workBranch ?? d.workBranch,
 		workBranchMode: partial.workBranchMode ?? d.workBranchMode,
 		setup: partial.setup ?? d.setup,
+		gates: partial.gates ?? d.gates,
 		prompts: { ...d.prompts, ...partial.prompts },
 		hooks: { ...d.hooks, ...partial.hooks },
 		agentIdleTimeoutSec: partial.agentIdleTimeoutSec ?? d.agentIdleTimeoutSec,

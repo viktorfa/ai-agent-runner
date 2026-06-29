@@ -6,12 +6,17 @@ import { parseReadyTaskIds } from './board'
 import { type AgentConfig, promptPath } from './config'
 import {
 	fetchArgs,
+	headShaArgs,
+	mergeTaskBranchArgs,
+	resetHardArgs,
+	resetWorkBranchArgs,
 	taskBranch,
 	workBranchPushArgs,
 	worktreeAddArgs,
 	worktreePruneArgs,
 	worktreeRemoveArgs,
 } from './git'
+import type { IntegrateDeps } from './integrate'
 import { createSerializer } from './mutex'
 import type { OrchestrateDeps } from './orchestrate'
 import type { ParallelDeps } from './parallel'
@@ -159,6 +164,22 @@ async function readyCount(cwd: string): Promise<number> {
 	return (await readReadyTaskIds(cwd)).length
 }
 
+/** Move a task to Blocked with a comment. Throws if the board edit fails. */
+async function blockTask(cwd: string, id: string, note: string): Promise<void> {
+	const { code, stderr } = await exec(
+		'pnpm',
+		['exec', 'backlog', 'task', 'edit', id, '-s', 'Blocked', '--comment', note],
+		cwd,
+		{ quiet: true },
+	)
+	if (code !== 0) {
+		throw new Error(
+			`failed to park ${id}: backlog edit exited ${code} — ` +
+				`${stderr.trim() || '(none)'}`,
+		)
+	}
+}
+
 /**
  * Park the top ready task as Blocked so a drain that keeps making no progress
  * surfaces the offending task for review instead of re-attempting it forever.
@@ -170,28 +191,7 @@ async function parkStuckTask(
 ): Promise<string | null> {
 	const [top] = await readReadyTaskIds(cwd)
 	if (!top) return null
-	const { code, stderr } = await exec(
-		'pnpm',
-		[
-			'exec',
-			'backlog',
-			'task',
-			'edit',
-			top,
-			'-s',
-			'Blocked',
-			'--comment',
-			note,
-		],
-		cwd,
-		{ quiet: true },
-	)
-	if (code !== 0) {
-		throw new Error(
-			`failed to park ${top}: backlog edit exited ${code} — ` +
-				`${stderr.trim() || '(none)'}`,
-		)
-	}
+	await blockTask(cwd, top, note)
 	return top
 }
 
@@ -277,6 +277,71 @@ export function makeOrchestrateDeps(
 		git: (gitArgs) => exec('git', gitArgs, cwd, { sink }),
 		runSetup: async () => {
 			await exec('bash', [config.setup], cwd, { sink })
+		},
+	}
+}
+
+/**
+ * Real IO for `integrate`: drive git + the gates script in the main working tree to
+ * fold task branches into staging (auto/work).
+ *
+ * Staging is rebuilt from `origin/<base>` at the start of each pass: cross-poll
+ * accumulation and director promote (staging → master) are slice 7, so for now a pass
+ * integrates only the branches handed to it. The pre-merge sha is captured per merge so
+ * a red combined-tree gate can be rolled back without touching earlier landed tasks.
+ */
+export function makeIntegrateDeps(
+	opts: RunOptions,
+	config: AgentConfig,
+	sink?: Sink,
+): IntegrateDeps {
+	const cwd = opts.workspace
+	let preMergeSha = ''
+	return {
+		prepareStaging: async () => {
+			const { code, stderr } = await exec(
+				'git',
+				resetWorkBranchArgs(config.workBranch, config.baseBranch),
+				cwd,
+				{ sink },
+			)
+			if (code !== 0) {
+				throw new Error(
+					`failed to prepare staging ${config.workBranch}: ${stderr.trim() || '(none)'}`,
+				)
+			}
+		},
+
+		mergeBranch: async (branch) => {
+			const head = await exec('git', headShaArgs(), cwd, { quiet: true })
+			preMergeSha = head.stdout.trim()
+			const { code } = await exec('git', mergeTaskBranchArgs(branch), cwd, {
+				sink,
+			})
+			if (code === 0) return 'merged'
+			// Couldn't auto-merge — abort so staging returns to its pre-merge state.
+			await exec('git', ['merge', '--abort'], cwd, { quiet: true })
+			return 'conflict'
+		},
+
+		rollbackLastMerge: async () => {
+			if (!preMergeSha) return
+			await exec('git', resetHardArgs(preMergeSha), cwd, { quiet: true })
+		},
+
+		runGates: async () => {
+			const { code } = await exec('bash', [config.gates], cwd, {
+				sink,
+				idleTimeoutMs: config.agentIdleTimeoutSec * 1000,
+			})
+			return code === 0
+		},
+
+		park: (taskId, reason) => blockTask(cwd, taskId, reason),
+
+		log: (line) => {
+			process.stderr.write(`${line}\n`)
+			sink?.(`${line}\n`)
 		},
 	}
 }

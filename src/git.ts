@@ -71,3 +71,22 @@ export function worktreeRemoveArgs(path: string): string[] {
 export function worktreePruneArgs(): string[] {
 	return ['worktree', 'prune']
 }
+
+/** The current HEAD commit sha — snapshot it before a merge so it can be rolled back to. */
+export function headShaArgs(): string[] {
+	return ['rev-parse', 'HEAD']
+}
+
+/**
+ * Merge a task branch into the current (staging) branch. `--no-ff` forces a merge
+ * commit even for a fast-forward, so each task lands as one distinct, individually
+ * rollback-able step; `--no-edit` keeps it non-interactive.
+ */
+export function mergeTaskBranchArgs(branch: string): string[] {
+	return ['merge', '--no-edit', '--no-ff', branch]
+}
+
+/** Hard-reset the current branch to a sha (undo a merge whose combined gates went red). */
+export function resetHardArgs(sha: string): string[] {
+	return ['reset', '--hard', sha]
+}
