@@ -66,7 +66,7 @@ export async function runParallel(
 		capacity: config.maxParallel,
 	})
 	if (chosen.length === 0) {
-		deps.log('no dispatchable tasks ready')
+		deps.log('no ready tasks to dispatch')
 		return []
 	}
 	deps.log(
