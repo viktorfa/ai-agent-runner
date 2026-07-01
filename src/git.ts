@@ -114,6 +114,21 @@ export function resetHardArgs(sha: string): string[] {
 	return ['reset', '--hard', sha]
 }
 
+/** Stage exactly one pathspec — used to commit a single task's board change in isolation. */
+export function stagePathArgs(path: string): string[] {
+	return ['add', '--', path]
+}
+
+/** Exit 0 iff nothing is staged for the pathspec (so a no-op edit isn't committed). */
+export function stagedEmptyArgs(path: string): string[] {
+	return ['diff', '--cached', '--quiet', '--', path]
+}
+
+/** Commit the staged changes with a message, non-interactively. */
+export function commitArgs(message: string): string[] {
+	return ['commit', '-m', message]
+}
+
 /** Count commits on each side of two remote branches. */
 export function remoteAheadBehindArgs(
 	leftBranch: string,

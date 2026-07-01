@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { parseReadyTaskIds } from './board'
 import { type AgentConfig, parseConfig, promptPath } from './config'
 import {
+	commitArgs,
 	fetchArgs,
 	headShaArgs,
 	mergeAbortArgs,
@@ -14,6 +15,8 @@ import {
 	resetHardArgs,
 	resetWorkBranchArgs,
 	showFileAtRefArgs,
+	stagedEmptyArgs,
+	stagePathArgs,
 	taskBranch,
 	workBranchPushArgs,
 	worktreeAddArgs,
@@ -205,12 +208,11 @@ async function parkStuckTask(
 }
 
 /**
- * A task's parsed metadata, or null if it can't be read. Backlog has no `--json`; its
- * `--plain` view prints the source file path on its first line (`File: …`), which we
- * read and parse. A missing task or unreadable file yields null, not a throw — the
- * brief is best-effort, never a reason to fail the run.
+ * The absolute path of a task's source file, or null if it can't be resolved. Backlog has
+ * no `--json`; its `--plain` view prints the path on its first line (`File: …`), which we
+ * parse — the one handle we have on the file to read its metadata or stage it in git.
  */
-async function readTaskMeta(cwd: string, id: string): Promise<TaskMeta | null> {
+async function taskFilePath(cwd: string, id: string): Promise<string | null> {
 	const { code, stdout } = await exec(
 		'pnpm',
 		['exec', 'backlog', 'task', id, '--plain'],
@@ -219,9 +221,18 @@ async function readTaskMeta(cwd: string, id: string): Promise<TaskMeta | null> {
 	)
 	if (code !== 0) return null
 	const file = /^File:\s*(.+)$/m.exec(stdout)
+	return file ? file[1].trim() : null
+}
+
+/**
+ * A task's parsed metadata, or null if it can't be read. A missing task or unreadable
+ * file yields null, not a throw — the brief is best-effort, never a reason to fail the run.
+ */
+async function readTaskMeta(cwd: string, id: string): Promise<TaskMeta | null> {
+	const file = await taskFilePath(cwd, id)
 	if (!file) return null
 	try {
-		return parseTask(await readFile(file[1].trim(), 'utf8'))
+		return parseTask(await readFile(file, 'utf8'))
 	} catch {
 		return null
 	}
@@ -362,6 +373,41 @@ export function makeIntegrateDeps(
 		},
 
 		park: (taskId, reason) => blockTask(cwd, taskId, reason),
+
+		recordBlocked: async (taskId) => {
+			await blockTask(
+				cwd,
+				taskId,
+				'agent ended the run Blocked — could not complete unattended; ' +
+					'review, then unblock or mark risk:needs-human.',
+			)
+			// Commit only this task's file, so a concurrent conflict-park's uncommitted
+			// board edit (which must stay transient to redo) isn't swept in.
+			const path = await taskFilePath(cwd, taskId)
+			if (!path) throw new Error(`cannot resolve board file for ${taskId}`)
+			await exec('git', stagePathArgs(path), cwd, { quiet: true })
+			const { code: unchanged } = await exec(
+				'git',
+				stagedEmptyArgs(path),
+				cwd,
+				{
+					quiet: true,
+				},
+			)
+			if (unchanged === 0) return false // already Blocked on the board — nothing to do
+			const { code, stderr } = await exec(
+				'git',
+				commitArgs(`chore(board): block ${taskId} (agent could not complete)`),
+				cwd,
+				{ sink },
+			)
+			if (code !== 0) {
+				throw new Error(
+					`failed to commit Blocked status for ${taskId}: ${stderr.trim() || '(none)'}`,
+				)
+			}
+			return true
+		},
 
 		pushStaging: async () => {
 			const { code } = await exec(

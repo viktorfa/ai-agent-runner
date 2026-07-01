@@ -6,6 +6,12 @@ import type { TaskMeta } from './task'
 export interface TaskOutcome {
 	id: string
 	ok: boolean
+	/**
+	 * The task's board status as the agent left it (undefined if the run never got far
+	 * enough to read it). A deliberate `Blocked` here is the agent's "I can't do this"
+	 * verdict — the integrator persists it so the scheduler stops re-dispatching it.
+	 */
+	status?: string
 }
 
 /** IO the parallel planner needs, injected so the dispatch logic is unit-testable. */
@@ -98,9 +104,9 @@ async function dispatchOne(
 				`task ${id} finished but status is ${status ?? 'unknown'}; ` +
 					'not integrating branch',
 			)
-			return { id, ok: false }
+			return { id, ok: false, status }
 		}
-		return { id, ok: true }
+		return { id, ok: true, status }
 	} catch (err) {
 		deps.log(`task ${id} threw: ${errText(err)}`)
 		return { id, ok: false }

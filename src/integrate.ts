@@ -11,6 +11,8 @@ export interface IntegrationResult {
 	staged: string[]
 	/** Task ids held back (textual conflict or red combined-tree gates). */
 	parked: string[]
+	/** Task ids the agent marked Blocked, now persisted to the board so they don't recur. */
+	blocked: string[]
 }
 
 /** IO the integrator needs, injected so the merge policy is unit-testable. */
@@ -27,6 +29,12 @@ export interface IntegrateDeps {
 	runGates(): Promise<boolean>
 	/** Hold a task back for human/redo attention, with a reason. */
 	park(taskId: string, reason: string): Promise<void>
+	/**
+	 * Persist an agent's Blocked verdict to the board and commit that single task file
+	 * onto staging, so the scheduler stops re-dispatching a task the agent can't complete.
+	 * Resolves true if a commit was made, false if the status was already recorded (no-op).
+	 */
+	recordBlocked(taskId: string): Promise<boolean>
 	/** Publish the current staging branch for preview and explicit promotion. */
 	pushStaging(): Promise<boolean>
 	log(line: string): void
@@ -50,11 +58,15 @@ export interface IntegrateDeps {
  */
 export async function integrate(
 	tasks: IntegrableTask[],
+	blocked: string[],
 	deps: IntegrateDeps,
 ): Promise<IntegrationResult> {
 	const staged: string[] = []
 	const parked: string[] = []
-	if (tasks.length === 0) return { staged, parked }
+	const recorded: string[] = []
+	if (tasks.length === 0 && blocked.length === 0) {
+		return { staged, parked, blocked: recorded }
+	}
 
 	for (const { id, branch } of tasks) {
 		if ((await deps.mergeBranch(branch)) === 'conflict') {
@@ -73,8 +85,22 @@ export async function integrate(
 		deps.log(`staged ${id} (${branch})`)
 		staged.push(id)
 	}
-	if (staged.length > 0 && !(await deps.pushStaging())) {
+	// The agent's Blocked verdict is durable (unlike a conflict park, which redoes on a
+	// fresh base), so commit it to the board — otherwise the next drain's clean reset
+	// discards it and the task is dispatched forever.
+	for (const id of blocked) {
+		if (await deps.recordBlocked(id)) {
+			deps.log(
+				`recorded ${id} as Blocked on the board (agent could not complete)`,
+			)
+			recorded.push(id)
+		}
+	}
+	if (
+		(staged.length > 0 || recorded.length > 0) &&
+		!(await deps.pushStaging())
+	) {
 		throw new Error('failed to publish staging branch')
 	}
-	return { staged, parked }
+	return { staged, parked, blocked: recorded }
 }

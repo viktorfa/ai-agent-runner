@@ -106,12 +106,27 @@ async function main(): Promise<void> {
 			const built = results
 				.filter((r) => r.ok)
 				.map((r) => ({ id: r.id, branch: taskBranch(r.id) }))
-			const integration = built.length
-				? await integrate(built, makeIntegrateDeps(opts, config, sink))
-				: { staged: [], parked: [] }
+			// A task the agent left Blocked can't be redone unattended — persist that verdict
+			// to the board so the scheduler stops re-dispatching it every poll.
+			const blocked = results
+				.filter((r) => !r.ok && r.status === 'Blocked')
+				.map((r) => r.id)
+			const integration =
+				built.length || blocked.length
+					? await integrate(
+							built,
+							blocked,
+							makeIntegrateDeps(opts, config, sink),
+						)
+					: { staged: [], parked: [], blocked: [] }
 			count = results.length
-			ok = results.every((r) => r.ok) && integration.parked.length === 0
-			extra = ` — staged ${integration.staged.length}, parked ${integration.parked.length}`
+			// A recorded block is handled, not a failure; a park (needs redo) is.
+			ok =
+				results.every((r) => r.ok || r.status === 'Blocked') &&
+				integration.parked.length === 0
+			extra =
+				` — staged ${integration.staged.length}, parked ${integration.parked.length}` +
+				`, blocked ${integration.blocked.length}`
 		} else {
 			const outcomes: IterationOutcome[] =
 				command === 'orchestrate'

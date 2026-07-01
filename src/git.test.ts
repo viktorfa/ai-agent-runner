@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	baseBranchPushArgs,
+	commitArgs,
 	fetchArgs,
 	headShaArgs,
 	mergeAbortArgs,
@@ -13,6 +14,8 @@ import {
 	resetHardArgs,
 	resetWorkBranchArgs,
 	showFileAtRefArgs,
+	stagedEmptyArgs,
+	stagePathArgs,
 	taskBranch,
 	unmergedCountArgs,
 	workBranchPushArgs,
@@ -142,6 +145,32 @@ describe('integrator args', () => {
 
 	it('resetHardArgs hard-resets to a sha', () => {
 		expect(resetHardArgs('abc123')).toEqual(['reset', '--hard', 'abc123'])
+	})
+
+	it('stagePathArgs stages a single pathspec', () => {
+		expect(stagePathArgs('backlog/tasks/task-66 - x.md')).toEqual([
+			'add',
+			'--',
+			'backlog/tasks/task-66 - x.md',
+		])
+	})
+
+	it('stagedEmptyArgs checks whether a pathspec has staged changes', () => {
+		expect(stagedEmptyArgs('backlog/tasks/task-66 - x.md')).toEqual([
+			'diff',
+			'--cached',
+			'--quiet',
+			'--',
+			'backlog/tasks/task-66 - x.md',
+		])
+	})
+
+	it('commitArgs commits staged changes with a message', () => {
+		expect(commitArgs('chore(board): block TASK-66')).toEqual([
+			'commit',
+			'-m',
+			'chore(board): block TASK-66',
+		])
 	})
 
 	it('promoteWorkBranchArgs fast-forwards base to staging', () => {

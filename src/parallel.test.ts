@@ -44,8 +44,8 @@ describe('runParallel', () => {
 		const { deps, added, ran } = makeDeps([task('A'), task('B')])
 		const out = await runParallel({ ...defaultConfig(), maxParallel: 2 }, deps)
 		expect(out).toEqual([
-			{ id: 'A', ok: true },
-			{ id: 'B', ok: true },
+			{ id: 'A', ok: true, status: 'Done' },
+			{ id: 'B', ok: true, status: 'Done' },
 		])
 		expect(deps.fetch).toHaveBeenCalledOnce()
 		expect(added).toEqual(['A', 'B'])
@@ -74,7 +74,7 @@ describe('runParallel', () => {
 		const { deps } = makeDeps([task('A'), task('B')], { runTask })
 		const out = await runParallel({ ...defaultConfig(), maxParallel: 2 }, deps)
 		expect(out).toContainEqual({ id: 'A', ok: false })
-		expect(out).toContainEqual({ id: 'B', ok: true })
+		expect(out).toContainEqual({ id: 'B', ok: true, status: 'Done' })
 		expect(deps.removeWorktree).toHaveBeenCalledTimes(2) // cleanup ran for both
 	})
 
@@ -82,7 +82,7 @@ describe('runParallel', () => {
 		const readTaskStatus = vi.fn(async () => 'To Do')
 		const { deps } = makeDeps([task('A')], { readTaskStatus })
 		const out = await runParallel({ ...defaultConfig(), maxParallel: 2 }, deps)
-		expect(out).toEqual([{ id: 'A', ok: false }])
+		expect(out).toEqual([{ id: 'A', ok: false, status: 'To Do' }])
 		expect(deps.log).toHaveBeenCalledWith(
 			expect.stringContaining('status is To Do'),
 		)
@@ -95,7 +95,7 @@ describe('runParallel', () => {
 			.mockResolvedValueOnce(undefined)
 		const { deps } = makeDeps([task('A'), task('B')], { readTaskStatus })
 		const out = await runParallel({ ...defaultConfig(), maxParallel: 2 }, deps)
-		expect(out).toContainEqual({ id: 'A', ok: false })
+		expect(out).toContainEqual({ id: 'A', ok: false, status: 'Blocked' })
 		expect(out).toContainEqual({ id: 'B', ok: false })
 	})
 

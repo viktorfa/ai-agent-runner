@@ -99,7 +99,17 @@ superseded here by this single accumulating staging branch.
    **park and re-dispatch on the fresh base** — a new worktree off the current
    `auto/work`, agent reimplements the task on top of the conflicting change, yielding a
    clean gate-checkable diff. If it re-conflicts or is touchy, escalate to
-   `needs-human`. Never blind marker-resolution; never land red.
+   `needs-human`. Never blind marker-resolution; never land red. A park is *transient* —
+   the Blocked edit is left uncommitted so the next drain's clean reset drops it and the
+   task is retried.
+6a. **Agent-Blocked verdict (durable, not retried).** Distinct from a park: if the agent
+   itself ends a run having set the task `Blocked` (it judged the task undoable
+   unattended — e.g. it needs a running app or a human), that verdict is **committed to
+   the board on `auto/work`** so the next drain's reset keeps it and the scheduler (which
+   only dispatches `To Do`) stops re-dispatching it. Without this the task is re-picked
+   every poll forever — the failure mode this closes. Only the single task file is
+   committed, so a concurrent park's transient edit isn't swept in. Review a Blocked task
+   and either unblock it or relabel `risk:needs-human`.
 7. **Staging + promote.** Director tests the `auto/work` preview, then runs
    `agent-runner promote` to fast-forward `master` to `origin/auto/work`, or
    `agent-runner discard` to reset only staging back to `origin/master`.

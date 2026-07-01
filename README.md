@@ -104,9 +104,12 @@ conflict. `config.gates` (default `.agent/gates.sh`) runs after each
 merge; a textual conflict or red gate parks the task instead of landing it. After the
 worker run, the runner reads the assigned Backlog task from that worker worktree and
 only exposes the branch to integration if the task status is `Done`. `To Do`, `In
-Progress`, `Blocked`, or unreadable task state is treated as a failed worker run and
-the branch is not merged. Successful staging is published to `origin/auto/work` with
-force-with-lease. `promote` fast-forwards the base branch to published staging and
+Progress`, or unreadable task state is treated as a failed worker run and the branch is
+not merged (a transient failure — retried next drain). A `Blocked` verdict is durable:
+the agent judged the task undoable unattended, so the runner commits that status to the
+board on `auto/work` — the scheduler dispatches only `To Do`, so the task stops recurring
+instead of being re-picked every poll. Successful staging is published to
+`origin/auto/work` with force-with-lease. `promote` fast-forwards the base branch to published staging and
 pushes it normally; `discard` resets only staging back to base.
 
 Worker prompts should follow the same basic lifecycle as mature target repos such as

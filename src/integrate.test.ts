@@ -20,6 +20,10 @@ function makeDeps(over: Partial<IntegrateDeps> = {}) {
 			return true
 		}),
 		park: vi.fn(async () => {}),
+		recordBlocked: vi.fn(async (id: string) => {
+			calls.push(`block ${id}`)
+			return true
+		}),
 		pushStaging: vi.fn(async () => {
 			calls.push('push')
 			return true
@@ -31,17 +35,36 @@ function makeDeps(over: Partial<IntegrateDeps> = {}) {
 }
 
 describe('integrate', () => {
-	it('does nothing with no tasks', async () => {
+	it('does nothing with no tasks and nothing blocked', async () => {
 		const { deps, calls } = makeDeps()
-		const out = await integrate([], deps)
-		expect(out).toEqual({ staged: [], parked: [] })
+		const out = await integrate([], [], deps)
+		expect(out).toEqual({ staged: [], parked: [], blocked: [] })
 		expect(calls).toEqual([])
+	})
+
+	it('persists an agent-blocked task and pushes even with no merges', async () => {
+		const { deps, calls } = makeDeps()
+		const out = await integrate([], ['TASK-66'], deps)
+		expect(out).toEqual({ staged: [], parked: [], blocked: ['TASK-66'] })
+		expect(calls).toEqual(['block TASK-66', 'push'])
+		expect(deps.mergeBranch).not.toHaveBeenCalled()
+	})
+
+	it('does not count an already-recorded block (no-op) toward the push', async () => {
+		const { deps } = makeDeps({ recordBlocked: vi.fn(async () => false) })
+		const out = await integrate([], ['TASK-66'], deps)
+		expect(out).toEqual({ staged: [], parked: [], blocked: [] })
+		expect(deps.pushStaging).not.toHaveBeenCalled()
 	})
 
 	it('lands clean branches in order, gating after each merge', async () => {
 		const { deps, calls } = makeDeps()
-		const out = await integrate(tasks('TASK-1', 'TASK-2'), deps)
-		expect(out).toEqual({ staged: ['TASK-1', 'TASK-2'], parked: [] })
+		const out = await integrate(tasks('TASK-1', 'TASK-2'), [], deps)
+		expect(out).toEqual({
+			staged: ['TASK-1', 'TASK-2'],
+			parked: [],
+			blocked: [],
+		})
 		expect(calls).toEqual([
 			'merge auto/task-1',
 			'gates',
@@ -57,8 +80,8 @@ describe('integrate', () => {
 			b === 'auto/task-1' ? ('conflict' as const) : ('merged' as const),
 		)
 		const { deps } = makeDeps({ mergeBranch })
-		const out = await integrate(tasks('TASK-1', 'TASK-2'), deps)
-		expect(out).toEqual({ staged: ['TASK-2'], parked: ['TASK-1'] })
+		const out = await integrate(tasks('TASK-1', 'TASK-2'), [], deps)
+		expect(out).toEqual({ staged: ['TASK-2'], parked: ['TASK-1'], blocked: [] })
 		expect(deps.pushStaging).toHaveBeenCalledOnce()
 		expect(deps.rollbackLastMerge).not.toHaveBeenCalled() // abort handled in merge
 		expect(deps.park).toHaveBeenCalledWith(
@@ -73,8 +96,8 @@ describe('integrate', () => {
 			.mockResolvedValueOnce(false) // TASK-1 turns staging red
 			.mockResolvedValueOnce(true) // TASK-2 is fine on the rolled-back base
 		const { deps } = makeDeps({ runGates })
-		const out = await integrate(tasks('TASK-1', 'TASK-2'), deps)
-		expect(out).toEqual({ staged: ['TASK-2'], parked: ['TASK-1'] })
+		const out = await integrate(tasks('TASK-1', 'TASK-2'), [], deps)
+		expect(out).toEqual({ staged: ['TASK-2'], parked: ['TASK-1'], blocked: [] })
 		expect(deps.pushStaging).toHaveBeenCalledOnce()
 		expect(deps.rollbackLastMerge).toHaveBeenCalledOnce()
 		expect(deps.park).toHaveBeenCalledWith(
@@ -87,8 +110,8 @@ describe('integrate', () => {
 		const { deps } = makeDeps({
 			mergeBranch: vi.fn(async () => 'conflict' as const),
 		})
-		const out = await integrate(tasks('TASK-1'), deps)
-		expect(out).toEqual({ staged: [], parked: ['TASK-1'] })
+		const out = await integrate(tasks('TASK-1'), [], deps)
+		expect(out).toEqual({ staged: [], parked: ['TASK-1'], blocked: [] })
 		expect(deps.pushStaging).not.toHaveBeenCalled()
 	})
 
@@ -96,6 +119,8 @@ describe('integrate', () => {
 		const { deps } = makeDeps({
 			pushStaging: vi.fn(async () => false),
 		})
-		await expect(integrate(tasks('TASK-1'), deps)).rejects.toThrow(/publish/)
+		await expect(integrate(tasks('TASK-1'), [], deps)).rejects.toThrow(
+			/publish/,
+		)
 	})
 })
