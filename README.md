@@ -1,5 +1,7 @@
 # agent-runner
 
+Status: pre-1.0, experimental.
+
 The typed core that runs headless coding agents (Claude Code, Codex; OpenCode
 later) against a repo: select work, build the per-tool argv, run the loop, parse
 the result, commit + push, and keep a transcript. Plus the **control plane** that
