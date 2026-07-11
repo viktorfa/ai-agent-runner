@@ -85,6 +85,9 @@ async function main(): Promise<void> {
 	// CLI flag wins, else the repo's .agent/config.json, else a default.
 	const opts = resolveRunOptions(args, config)
 	sink(`# assistant ${opts.assistant}/${opts.role}\n`)
+	sink(`# model ${opts.model ?? ''}\n`)
+	sink(`# effort ${opts.effort ?? ''}\n`)
+	if (opts.task) sink(`# task ${opts.task}\n`)
 
 	// A drain always runs through the parallel dispatch path — it's the single drain
 	// model. maxParallel just sets how many tasks run at once (1 = one at a time).

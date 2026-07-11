@@ -3,9 +3,10 @@ id: TASK-3
 title: >-
   Runner: stamp dispatched model/effort into the transcript so metrics attribute
   overrides correctly
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-11 17:43'
+updated_date: '2026-07-11 18:01'
 labels:
   - 'area:metrics'
   - 'risk:low'
@@ -28,7 +29,16 @@ Fix: at drain time, after the runner resolves the effective model/effort (src/ar
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each drain transcript records the effective model + effort actually passed to codex, including when set via --model/--effort override
-- [ ] #2 drain-metrics-extract reads model/effort from the transcript when present, falling back to the merged-commit .agent/config.json for older logs
-- [ ] #3 A one-off 'dispatch <repo> --task X --model gpt-5.6-sol --effort high' yields a drains.csv row with model=gpt-5.6-sol effort=high, not the committed config's values
+- [x] #1 Each drain transcript records the effective model + effort actually passed to codex, including when set via --model/--effort override
+- [x] #2 drain-metrics-extract reads model/effort from the transcript when present, falling back to the merged-commit .agent/config.json for older logs
+- [x] #3 A one-off 'dispatch <repo> --task X --model gpt-5.6-sol --effort high' yields a drains.csv row with model=gpt-5.6-sol effort=high, not the committed config's values
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-07-11 18:01
+---
+Implemented effective model/effort transcript headers, transcript-first metrics extraction with merged-commit config fallback, and explicit-task extraction for one-off dispatch rows. Modified: src/cli.ts, control/bin/drain-metrics-extract, control/bin/collect-metrics, control/README.md. Verified: pnpm check, extractor override/legacy fallback test, CLI override transcript smoke test.
+---
+<!-- COMMENTS:END -->
