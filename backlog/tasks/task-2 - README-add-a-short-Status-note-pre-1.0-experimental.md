@@ -1,9 +1,10 @@
 ---
 id: TASK-2
 title: 'README: add a short Status note (pre-1.0, experimental)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-29 18:05'
+updated_date: '2026-07-11 17:46'
 labels:
   - 'risk:low'
   - 'area:readme'
@@ -13,6 +14,6 @@ ordinal: 2000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 README.md has a one-line status note near the top
-- [ ] #2 No other sections change; pnpm check stays green
+- [x] #1 README.md has a one-line status note near the top
+- [x] #2 No other sections change; pnpm check stays green
 <!-- AC:END -->
