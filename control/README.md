@@ -114,3 +114,51 @@ so a queued run never overlaps the drain or a manual `dispatch`; if the repo is 
 when its turn comes the job stays queued and retries next tick. It's a queue, **not a
 cron**: the run fires the next time the repo is free, then it's gone. Cancel a pending
 job by deleting its file from the queue dir.
+
+## Metrics (drain telemetry)
+
+`control/bin/collect-metrics` (fired by `agent-metrics.timer`, every 5 min) appends one
+row per **work-doing** drain to `~/.config/agent-runner/metrics/drains.csv` — the
+mechanical half of the agent-metrics design (the product repos' `docs/AGENT_METRICS.md`
+covers the whole two-plane picture; the other half is orchestrator-authored quality
+reviews, joined on task id). It answers **speed and cost**; it deliberately says nothing
+about correctness or code quality.
+
+Idle polls are skipped. It's idempotent (per repo, only drains newer than the last row),
+so re-runs and missed ticks never duplicate. **Model/effort are attributed from each
+drain's merged `auto/work` commit** — correct across model switches, because the config
+travels with the code. Caveat: a per-dispatch `--model`/`--effort` **override** is not
+yet reflected (the collector reads the committed `.agent/config.json`); making overrides
+first-class needs the runner to stamp the actually-dispatched model into the transcript.
+
+Install (on the executor, as the operator):
+```bash
+cp control/systemd/agent-metrics.{service,timer} ~/.config/systemd/user/
+# adjust ExecStart in agent-metrics.service if the clone isn't /home/agent/agent-runner
+systemctl --user daemon-reload
+systemctl --user enable --now agent-metrics.timer
+```
+
+Columns: `start,end,wall_s,repo,model,effort,merged_hash,n_tasks,tasks,staged,parked,
+blocked,failures,status,turns,output_tokens,reasoning_tokens,input_uncached,cached_input`.
+Reasoning tokens bill as output and are already included in `output_tokens`. Cost is
+`input_uncached·IN + cached_input·CACHED + output·OUT` at the model's per-token rate.
+
+**Do not rank models by `wall_s`** — much of it is `pnpm test`/`build` in the gates,
+which is model-independent; use token/reasoning for effort and $/staged for cost.
+
+## Model + effort, and the codex version coupling
+
+`assistant`/`model`/`effort` live in each repo's **`.agent/config.json`** (versioned with
+the code — a model id is assistant-specific, so the three travel together). A one-off run
+can override them: `dispatch <repo> --model <id> --effort <level>`.
+
+**A new model can require a newer codex.** Symptom: every drain fails fast with
+`400 … "The '<model>' model requires a newer version of Codex"` (and a
+`Model metadata for '<model>' not found` warning). Fix — upgrade the CLI for the repo
+user and re-run:
+```bash
+sudo -iu agent bash -lc 'pnpm add -g @openai/codex@latest && codex --version'
+```
+Because codex is a single global CLI shared by every repo on the box, keep it current;
+a stale codex silently blocks all model bumps.
