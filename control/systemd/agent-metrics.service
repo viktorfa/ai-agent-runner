@@ -1,0 +1,20 @@
+# systemd --user unit — collect drain metrics into ~/.config/agent-runner/metrics/
+# drains.csv. Runs as the OPERATOR (same user as the watchers). Oneshot, driven by
+# agent-metrics.timer. Idempotent, so a missed tick just catches up on the next.
+#
+# Install (on the executor, as the operator):
+#   mkdir -p ~/.config/systemd/user
+#   cp <agent-runner>/control/systemd/agent-metrics.service ~/.config/systemd/user/
+#   cp <agent-runner>/control/systemd/agent-metrics.timer   ~/.config/systemd/user/
+#   # set ExecStart's path to match your deployment if not /home/agent/agent-runner
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agent-metrics.timer
+#
+# Logs: journalctl --user -u agent-metrics -f       Data: ~/.config/agent-runner/metrics/drains.csv
+
+[Unit]
+Description=Collect agent-runner drain metrics into drains.csv
+
+[Service]
+Type=oneshot
+ExecStart=/home/agent/agent-runner/control/bin/collect-metrics

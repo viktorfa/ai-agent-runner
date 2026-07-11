@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Emit one CSV row per completed, work-doing drain transcript, newer than --after.
+
+Runs as the `agent` user (native access to transcripts + the git clone). Reads
+nothing it can't derive from the transcript itself plus the repo's git history,
+so it needs no runner cooperation. Model/effort are read from the exact tree the
+drain operated on (its merged auto/work commit), so attribution is precise even
+across model switches. Idle polls (no task dispatched) are skipped — this CSV is
+about actual work, for comparing models/efforts data-drivenly.
+
+Prints rows WITHOUT a header (the collector owns the header). One row per drain.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+HEAD_RE = re.compile(r"HEAD is now at ([0-9a-f]{7,40})")
+DISPATCH_RE = re.compile(r"^dispatching \d+ task\(s\)[^:]*:\s*(.+)$", re.M)
+DONE_RE = re.compile(
+    r"^Done:.*?staged (\d+), parked (\d+), blocked (\d+),\s*(ok|with failures)", re.M
+)
+STAMP_FMT = "%Y-%m-%dT%H-%M-%S"
+
+# Columns emitted (keep in sync with the collector's header).
+COLUMNS = [
+    "start", "end", "wall_s", "repo", "model", "effort", "merged_hash",
+    "n_tasks", "tasks", "staged", "parked", "blocked", "failures", "status",
+    "turns", "output_tokens", "reasoning_tokens", "input_uncached", "cached_input",
+]
+
+
+def config_at(repo_path, commit):
+    """model, effort from .agent/config.json at a commit (best-effort)."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", repo_path, "show", f"{commit}:.agent/config.json"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if out.returncode != 0:
+            return "", ""
+        cfg = json.loads(out.stdout)
+        return str(cfg.get("model", "")), str(cfg.get("effort", ""))
+    except Exception:
+        return "", ""
+
+
+def parse_transcript(path):
+    text = open(path, errors="replace").read()
+
+    done = DONE_RE.search(text)
+    if not done:
+        return None  # still running — record it next tick
+    staged, parked, blocked, verdict = done.groups()
+
+    disp = DISPATCH_RE.search(text)
+    tasks = []
+    if disp:
+        tasks = [t.strip() for t in disp.group(1).split(",") if t.strip()]
+    if not tasks:
+        return None  # idle poll — nothing to compare
+
+    head = HEAD_RE.search(text)
+    merged_hash = head.group(1) if head else ""
+
+    turns = out_tok = rea_tok = in_tok = cin_tok = 0
+    for line in text.splitlines():
+        if '"type":"turn.completed"' not in line:
+            continue
+        try:
+            u = json.loads(line.strip()).get("usage", {})
+        except Exception:
+            continue
+        turns += 1
+        out_tok += u.get("output_tokens", 0)
+        rea_tok += u.get("reasoning_output_tokens", 0)
+        in_tok += u.get("input_tokens", 0)
+        cin_tok += u.get("cached_input_tokens", 0)
+
+    return {
+        "staged": staged, "parked": parked, "blocked": blocked,
+        "failures": "1" if verdict == "with failures" else "0",
+        "status": "failed" if verdict == "with failures" else "ok",
+        "tasks": tasks, "merged_hash": merged_hash,
+        "turns": turns, "output_tokens": out_tok, "reasoning_tokens": rea_tok,
+        "input_uncached": in_tok - cin_tok, "cached_input": cin_tok,
+    }
+
+
+def main():
+    args = dict(a.split("=", 1) for a in sys.argv[1:] if "=" in a)
+    repo_path = args["--repo-path"]
+    repo_name = args["--repo-name"]
+    after = args.get("--after", "")  # emit only start-stamps strictly greater
+
+    logs = sorted(glob.glob(os.path.join(repo_path, "loop", "orchestrate-*.log")))
+    out = sys.stdout
+    for path in logs:
+        base = os.path.basename(path)
+        m = re.match(r"orchestrate-(.+)\.log$", base)
+        if not m:
+            continue
+        stamp = m.group(1)  # e.g. 2026-07-11T08-11-04 — zero-padded, sorts correctly
+        if after and stamp <= after:
+            continue
+
+        parsed = parse_transcript(path)
+        if parsed is None:
+            continue
+
+        start_dt = datetime.strptime(stamp, STAMP_FMT).replace(tzinfo=timezone.utc)
+        end_epoch = os.path.getmtime(path)
+        end_dt = datetime.fromtimestamp(end_epoch, tz=timezone.utc)
+        wall_s = int(end_epoch - start_dt.timestamp())
+
+        model, effort = config_at(repo_path, parsed["merged_hash"]) if parsed["merged_hash"] else ("", "")
+
+        row = {
+            "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "wall_s": str(wall_s),
+            "repo": repo_name,
+            "model": model, "effort": effort,
+            "merged_hash": parsed["merged_hash"],
+            "n_tasks": str(len(parsed["tasks"])),
+            "tasks": " ".join(parsed["tasks"]),
+            "staged": parsed["staged"], "parked": parsed["parked"],
+            "blocked": parsed["blocked"], "failures": parsed["failures"],
+            "status": parsed["status"], "turns": str(parsed["turns"]),
+            "output_tokens": str(parsed["output_tokens"]),
+            "reasoning_tokens": str(parsed["reasoning_tokens"]),
+            "input_uncached": str(parsed["input_uncached"]),
+            "cached_input": str(parsed["cached_input"]),
+        }
+        # CSV-safe: no field contains a comma (task ids space-joined; text fixed).
+        out.write(",".join(row[c] for c in COLUMNS) + "\n")
+
+
+if __name__ == "__main__":
+    main()
