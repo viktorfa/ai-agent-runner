@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Emit one CSV row per completed, work-doing drain transcript, newer than --after.
+"""Emit one CSV row per completed, work-doing transcript, newer than --after.
 
 Runs as the `agent` user (native access to transcripts + the git clone). Reads
 nothing it can't derive from the transcript itself plus the repo's git history,
-so it needs no runner cooperation. Model/effort are read from the exact tree the
-drain operated on (its merged auto/work commit), so attribution is precise even
-across model switches. Idle polls (no task dispatched) are skipped — this CSV is
-about actual work, for comparing models/efforts data-drivenly.
+so it needs no runner cooperation. Model/effort are read from the transcript when
+present, with the exact tree the drain operated on (its merged auto/work commit)
+as a fallback for older logs. Idle polls (no task dispatched) are skipped — this
+CSV is about actual work, for comparing models/efforts data-drivenly.
 
 Prints rows WITHOUT a header (the collector owns the header). One row per drain.
 """
@@ -20,9 +20,13 @@ from datetime import datetime, timezone
 
 HEAD_RE = re.compile(r"HEAD is now at ([0-9a-f]{7,40})")
 DISPATCH_RE = re.compile(r"^dispatching \d+ task\(s\)[^:]*:\s*(.+)$", re.M)
+TASK_RE = re.compile(r"^# task(?: (.*))?$", re.M)
 DONE_RE = re.compile(
     r"^Done:.*?staged (\d+), parked (\d+), blocked (\d+),\s*(ok|with failures)", re.M
 )
+SINGLE_DONE_RE = re.compile(r"^Done:.*?,\s*(ok|with failures)\.$", re.M)
+MODEL_RE = re.compile(r"^# model(?: (.*))?$", re.M)
+EFFORT_RE = re.compile(r"^# effort(?: (.*))?$", re.M)
 STAMP_FMT = "%Y-%m-%dT%H-%M-%S"
 
 # Columns emitted (keep in sync with the collector's header).
@@ -31,6 +35,13 @@ COLUMNS = [
     "n_tasks", "tasks", "staged", "parked", "blocked", "failures", "status",
     "turns", "output_tokens", "reasoning_tokens", "input_uncached", "cached_input",
 ]
+
+
+def transcript_header(text, pattern):
+    match = pattern.search(text)
+    if not match:
+        return None
+    return (match.group(1) or "").strip()
 
 
 def config_at(repo_path, commit):
@@ -52,14 +63,22 @@ def parse_transcript(path):
     text = open(path, errors="replace").read()
 
     done = DONE_RE.search(text)
-    if not done:
+    single_done = SINGLE_DONE_RE.search(text) if not done else None
+    if not done and not single_done:
         return None  # still running — record it next tick
-    staged, parked, blocked, verdict = done.groups()
+    if done:
+        staged, parked, blocked, verdict = done.groups()
+    else:
+        staged, parked, blocked, verdict = "0", "0", "0", single_done.group(1)
 
     disp = DISPATCH_RE.search(text)
     tasks = []
     if disp:
         tasks = [t.strip() for t in disp.group(1).split(",") if t.strip()]
+    else:
+        task = TASK_RE.search(text)
+        if task and task.group(1):
+            tasks = [task.group(1).strip()]
     if not tasks:
         return None  # idle poll — nothing to compare
 
@@ -85,6 +104,8 @@ def parse_transcript(path):
         "failures": "1" if verdict == "with failures" else "0",
         "status": "failed" if verdict == "with failures" else "ok",
         "tasks": tasks, "merged_hash": merged_hash,
+        "model": transcript_header(text, MODEL_RE),
+        "effort": transcript_header(text, EFFORT_RE),
         "turns": turns, "output_tokens": out_tok, "reasoning_tokens": rea_tok,
         "input_uncached": in_tok - cin_tok, "cached_input": cin_tok,
     }
@@ -116,7 +137,13 @@ def main():
         end_dt = datetime.fromtimestamp(end_epoch, tz=timezone.utc)
         wall_s = int(end_epoch - start_dt.timestamp())
 
-        model, effort = config_at(repo_path, parsed["merged_hash"]) if parsed["merged_hash"] else ("", "")
+        config_model, config_effort = (
+            config_at(repo_path, parsed["merged_hash"])
+            if parsed["merged_hash"]
+            else ("", "")
+        )
+        model = parsed["model"] if parsed["model"] is not None else config_model
+        effort = parsed["effort"] if parsed["effort"] is not None else config_effort
 
         row = {
             "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),

@@ -5,10 +5,8 @@
 # it only collects drains newer than the last one already recorded, so re-runs and the
 # 5-min timer never duplicate. Fired by agent-metrics.timer.
 #
-# Model/effort are attributed from each drain's merged auto/work commit, so they are
-# correct across model switches. NOTE: a per-dispatch `--model`/`--effort` OVERRIDE is
-# NOT yet reflected here (it reads the committed .agent/config.json) — see the runner
-# backlog task on stamping the actually-dispatched model into the transcript.
+# Model/effort are attributed from the transcript when available, with each drain's
+# merged auto/work commit as the fallback for older logs.
 set -uo pipefail
 
 CONFIG_DIR="${AGENT_RUNNER_CONFIG:-$HOME/.config/agent-runner}"

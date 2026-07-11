@@ -125,11 +125,9 @@ reviews, joined on task id). It answers **speed and cost**; it deliberately says
 about correctness or code quality.
 
 Idle polls are skipped. It's idempotent (per repo, only drains newer than the last row),
-so re-runs and missed ticks never duplicate. **Model/effort are attributed from each
-drain's merged `auto/work` commit** — correct across model switches, because the config
-travels with the code. Caveat: a per-dispatch `--model`/`--effort` **override** is not
-yet reflected (the collector reads the committed `.agent/config.json`); making overrides
-first-class needs the runner to stamp the actually-dispatched model into the transcript.
+so re-runs and missed ticks never duplicate. **Model/effort are attributed from the
+transcript when present**, so per-dispatch `--model`/`--effort` overrides are preserved;
+older transcripts fall back to the merged `auto/work` commit's `.agent/config.json`.
 
 Install (on the executor, as the operator):
 ```bash
