@@ -89,6 +89,11 @@ Key flags: `--task <id>` (one task) or `--drain` (work the board until empty),
 default. So `assistant`, `model`, `effort`, and `workBranchMode` live in
 `.agent/config.json` (versioned with the repo); the registry supplies only the
 machine binding (path/user/proxy); `role` is per-dispatch (default `dev`).
+For `model`/`effort` only, a task can sit above all three: `model:<id>` and
+`effort:<level>` labels on the Backlog task escalate that one task (first
+non-empty label wins; a drain-level flag never downgrades a labeled task). The
+resolved pair is stamped per task into the transcript (`# task-model …`) so
+metrics attribution stays correct in mixed drains.
 
 **Work-branch mode** (`.agent/config.json` → `workBranchMode`): `reset` (clean diff
 per run, guarded — review per PR) or `accumulate` (keep `auto/work`, merge base in,
