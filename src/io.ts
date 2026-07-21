@@ -528,12 +528,10 @@ export function makeParallelDeps(
 				task,
 				drain: false,
 				iterations: 1,
-				...((model ?? opts.model ?? config.model)
-					? { model: model ?? opts.model ?? config.model }
-					: {}),
-				...((effort ?? opts.effort ?? config.effort)
-					? { effort: effort ?? opts.effort ?? config.effort }
-					: {}),
+				// `...opts` already carries the dispatch-flag ?? config values; only a
+				// task-label override needs to replace them.
+				...(model ? { model } : {}),
+				...(effort ? { effort } : {}),
 				// The task branch is folded into staging locally by the integrator, so it
 				// never needs publishing — and it's cut from local auto/work, not origin.
 				noPush: true,
