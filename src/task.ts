@@ -33,6 +33,10 @@ export interface TaskMeta {
 	risk?: Risk
 	/** Areas from `area:<name>` labels — the lease set for conflict-aware scheduling. */
 	areas: string[]
+	/** Model override from the first non-empty `model:<id>` label, if present. */
+	model?: string
+	/** Reasoning-effort override from the first non-empty `effort:<level>` label. */
+	effort?: string
 	acceptanceCriteria: AcceptanceCriterion[]
 }
 
@@ -51,6 +55,8 @@ export function parseTask(markdown: string): TaskMeta {
 		documentation: asList(fm.documentation),
 		risk: riskFromLabels(labels),
 		areas: labelValues(labels, 'area:'),
+		model: firstLabelValue(labels, 'model:'),
+		effort: firstLabelValue(labels, 'effort:'),
 		acceptanceCriteria: parseAcceptanceCriteria(markdown),
 	}
 }
@@ -118,6 +124,15 @@ function riskFromLabels(labels: string[]): Risk | undefined {
 /** Values of `prefix`-prefixed labels (e.g. `area:rendering` → `rendering`). */
 const labelValues = (labels: string[], prefix: string): string[] =>
 	labels.filter((l) => l.startsWith(prefix)).map((l) => l.slice(prefix.length))
+
+/** First non-empty value for a label prefix; empty labels do not shadow later values. */
+const firstLabelValue = (
+	labels: string[],
+	prefix: string,
+): string | undefined =>
+	labels
+		.map((l) => (l.startsWith(prefix) ? l.slice(prefix.length) : ''))
+		.find((value) => value !== '')
 
 function parseAcceptanceCriteria(markdown: string): AcceptanceCriterion[] {
 	const lines = markdown.split('\n')

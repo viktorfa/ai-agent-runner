@@ -20,8 +20,11 @@ const baseOpts: RunOptions = {
 
 function makeDeps(stdout: string, readyCount = vi.fn(async () => 0)) {
 	const prompts: string[] = []
+	const argvs: string[][] = []
+	const logs: string[] = []
 	const spawnAgent = vi.fn(
-		async (_bin: string, _argv: string[], prompt: string) => {
+		async (_bin: string, argv: string[], prompt: string) => {
+			argvs.push(argv)
 			prompts.push(prompt)
 			return stdout
 		},
@@ -36,11 +39,13 @@ function makeDeps(stdout: string, readyCount = vi.fn(async () => 0)) {
 		push,
 		readyCount,
 		parkStuckTask,
-		log: () => {},
+		log: (line) => logs.push(line),
 	}
 	return {
 		deps,
 		spawnAgent,
+		argvs,
+		logs,
 		push,
 		prompts,
 		readyCount,
@@ -79,6 +84,59 @@ describe('runLoop', () => {
 		expect(readTaskMeta).toHaveBeenCalledWith('TASK-9')
 		expect(prompts[0]).toContain('must hold')
 		expect(prompts[0]).toContain('docs/X.md')
+	})
+
+	it('uses task labels over dispatch values and stamps the resolved pair', async () => {
+		const { deps, readTaskMeta, argvs, logs } = makeDeps(COMPLETED)
+		readTaskMeta.mockResolvedValueOnce({
+			id: 'TASK-9',
+			labels: ['model:gpt-task', 'effort:high'],
+			model: 'gpt-task',
+			effort: 'high',
+			blockedBy: [],
+			documentation: [],
+			areas: [],
+			acceptanceCriteria: [],
+		})
+		await runLoop(
+			{
+				...baseOpts,
+				iterations: 1,
+				task: 'TASK-9',
+				model: 'gpt-drain',
+				effort: 'low',
+			},
+			deps,
+		)
+		expect(argvs[0]).toContain('--model')
+		expect(argvs[0]).toContain('gpt-task')
+		expect(argvs[0]).toContain('model_reasoning_effort="high"')
+		expect(logs).toContain('# task-model TASK-9 gpt-task high')
+	})
+
+	it('keeps dispatch values when the assigned task has no labels', async () => {
+		const { deps, readTaskMeta, argvs, logs } = makeDeps(COMPLETED)
+		readTaskMeta.mockResolvedValueOnce({
+			id: 'TASK-9',
+			labels: [],
+			blockedBy: [],
+			documentation: [],
+			areas: [],
+			acceptanceCriteria: [],
+		})
+		await runLoop(
+			{
+				...baseOpts,
+				iterations: 1,
+				task: 'TASK-9',
+				model: 'gpt-dispatch',
+				effort: 'medium',
+			},
+			deps,
+		)
+		expect(argvs[0]).toContain('gpt-dispatch')
+		expect(argvs[0]).toContain('model_reasoning_effort="medium"')
+		expect(logs).toContain('# task-model TASK-9 gpt-dispatch medium')
 	})
 
 	it('does not push when noPush is set', async () => {

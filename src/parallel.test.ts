@@ -59,6 +59,21 @@ describe('runParallel', () => {
 		expect(ran.sort()).toEqual(['A', 'B'])
 	})
 
+	it('passes per-task model and effort overrides to the agent run', async () => {
+		const runTask = vi.fn(async () => true)
+		const { deps } = makeDeps(
+			[task('A', { model: 'gpt-task', effort: 'high' })],
+			{ runTask },
+		)
+		await runParallel({ ...defaultConfig(), maxParallel: 1 }, deps)
+		expect(runTask).toHaveBeenCalledWith({
+			task: 'A',
+			workspace: '/w/.worktrees/A',
+			model: 'gpt-task',
+			effort: 'high',
+		})
+	})
+
 	it('dispatches nothing when no task is dispatchable', async () => {
 		const { deps, added } = makeDeps([task('A', { risk: 'needs-human' })])
 		const out = await runParallel({ ...defaultConfig(), maxParallel: 3 }, deps)

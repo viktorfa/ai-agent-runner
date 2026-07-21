@@ -13,7 +13,7 @@ CONFIG_DIR="${AGENT_RUNNER_CONFIG:-$HOME/.config/agent-runner}"
 MDIR="$CONFIG_DIR/metrics"
 CSV="$MDIR/drains.csv"
 EXTRACT="/home/agent/agent-runner/control/bin/drain-metrics-extract"
-HEADER="start,end,wall_s,repo,model,effort,merged_hash,n_tasks,tasks,staged,parked,blocked,failures,status,turns,output_tokens,reasoning_tokens,input_uncached,cached_input"
+HEADER="start,end,wall_s,repo,model,effort,merged_hash,n_tasks,tasks,staged,parked,blocked,failures,status,turns,output_tokens,reasoning_tokens,input_uncached,cached_input,task_models"
 
 mkdir -p "$MDIR"
 exec 9>"$MDIR/.collect.lock"

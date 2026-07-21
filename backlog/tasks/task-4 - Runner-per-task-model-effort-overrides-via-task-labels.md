@@ -1,14 +1,26 @@
 ---
 id: TASK-4
 title: 'Runner: per-task model/effort overrides via task labels'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-21 11:47'
+updated_date: '2026-07-21 12:08'
 labels:
   - 'area:runner'
   - 'area:metrics'
   - 'risk:low'
 dependencies: []
+modified_files:
+  - src/task.ts
+  - src/task.test.ts
+  - src/run.ts
+  - src/run.test.ts
+  - src/parallel.ts
+  - src/parallel.test.ts
+  - src/io.ts
+  - control/bin/drain-metrics-extract
+  - control/bin/collect-metrics
+  - control/README.md
 priority: medium
 ordinal: 4000
 ---
@@ -40,9 +52,15 @@ Today model/effort are resolved once per drain (args.ts:119, `args.model ?? conf
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parseTask exposes optional model/effort from `model:`/`effort:` labels; tests cover present, absent, and empty-value labels
-- [ ] #2 Each task's agent spawn resolves model/effort as task-label ?? dispatch-flag ?? config; a task without labels behaves exactly as today (test pins this), and a labeled task overrides a drain-level --model flag (test pins this too)
-- [ ] #3 The drain transcript contains one `# task-model <TASK-ID> <model|-> <effort|->` line per dispatched task, stamped at spawn with resolved values
-- [ ] #4 drain-metrics-extract emits the trailing `task_models` column: empty for uniform drains, `TASK-ID=model/effort` entries for tasks deviating from the row-level pair; verified against a synthetic mixed-model transcript, and existing CSV rows still parse
-- [ ] #5 control/README.md metrics schema documents the new column and the label convention
+- [x] #1 parseTask exposes optional model/effort from `model:`/`effort:` labels; tests cover present, absent, and empty-value labels
+- [x] #2 Each task's agent spawn resolves model/effort as task-label ?? dispatch-flag ?? config; a task without labels behaves exactly as today (test pins this), and a labeled task overrides a drain-level --model flag (test pins this too)
+- [x] #3 The drain transcript contains one `# task-model <TASK-ID> <model|-> <effort|->` line per dispatched task, stamped at spawn with resolved values
+- [x] #4 drain-metrics-extract emits the trailing `task_models` column: empty for uniform drains, `TASK-ID=model/effort` entries for tasks deviating from the row-level pair; verified against a synthetic mixed-model transcript, and existing CSV rows still parse
+- [x] #5 control/README.md metrics schema documents the new column and the label convention
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented per-task model/effort label parsing and precedence, spawn-time task-model transcript stamps, mixed-drain metrics attribution, and control-plane documentation. Verified with pnpm check (Biome, tsgo, 123 Vitest tests) plus synthetic mixed, uniform, and legacy metrics transcripts.
+<!-- SECTION:FINAL_SUMMARY:END -->
