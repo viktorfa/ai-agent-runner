@@ -138,7 +138,10 @@ systemctl --user enable --now agent-metrics.timer
 ```
 
 Columns: `start,end,wall_s,repo,model,effort,merged_hash,n_tasks,tasks,staged,parked,
-blocked,failures,status,turns,output_tokens,reasoning_tokens,input_uncached,cached_input`.
+blocked,failures,status,turns,output_tokens,reasoning_tokens,input_uncached,cached_input,
+task_models`. `task_models` is empty for a uniform drain; otherwise it contains
+space-separated `TASK-ID=model/effort` entries for tasks whose resolved pair differs
+from the row-level `model`/`effort`.
 Reasoning tokens bill as output and are already included in `output_tokens`. Cost is
 `input_uncached·IN + cached_input·CACHED + output·OUT` at the model's per-token rate.
 
@@ -150,6 +153,10 @@ which is model-independent; use token/reasoning for effort and $/staged for cost
 `assistant`/`model`/`effort` live in each repo's **`.agent/config.json`** (versioned with
 the code — a model id is assistant-specific, so the three travel together). A one-off run
 can override them: `dispatch <repo> --model <id> --effort <level>`.
+
+Tasks can override the drain defaults with `model:<id>` and `effort:<level>` labels.
+The first non-empty label of each kind wins; empty-value labels are ignored. Resolution
+is task label, then dispatch flag, then `.agent/config.json`.
 
 **A new model can require a newer codex.** Symptom: every drain fails fast with
 `400 … "The '<model>' model requires a newer version of Codex"` (and a

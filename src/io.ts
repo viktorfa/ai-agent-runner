@@ -521,13 +521,19 @@ export function makeParallelDeps(
 				return path
 			}),
 
-		runTask: async ({ task, workspace }) => {
+		runTask: async ({ task, workspace, model, effort }) => {
 			const taskOpts: RunOptions = {
 				...opts,
 				workspace,
 				task,
 				drain: false,
 				iterations: 1,
+				...((model ?? opts.model ?? config.model)
+					? { model: model ?? opts.model ?? config.model }
+					: {}),
+				...((effort ?? opts.effort ?? config.effort)
+					? { effort: effort ?? opts.effort ?? config.effort }
+					: {}),
 				// The task branch is folded into staging locally by the integrator, so it
 				// never needs publishing — and it's cut from local auto/work, not origin.
 				noPush: true,

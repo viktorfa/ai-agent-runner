@@ -64,6 +64,26 @@ describe('parseTask', () => {
 		).toBeUndefined()
 	})
 
+	it('parses the first non-empty model and effort label values', () => {
+		const t = parseTask(
+			'---\nid: T4\nlabels:\n  - model:\n  - effort:\n  - model:gpt-5.6-sol\n  - effort:high\n  - model:later\n  - effort:later\n---',
+		)
+		expect(t.model).toBe('gpt-5.6-sol')
+		expect(t.effort).toBe('high')
+	})
+
+	it('leaves model and effort unset when labels are absent or empty', () => {
+		expect(
+			parseTask('---\nid: T5\nlabels:\n  - bug\n---').model,
+		).toBeUndefined()
+		expect(
+			parseTask('---\nid: T5\nlabels:\n  - model:\n  - effort:\n---'),
+		).toMatchObject({
+			model: undefined,
+			effort: undefined,
+		})
+	})
+
 	it('parses acceptance criteria with done state, stripping the #N prefix', () => {
 		const ac = parseTask(TASK_136).acceptanceCriteria
 		expect(ac).toEqual([

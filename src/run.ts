@@ -76,11 +76,29 @@ export async function runLoop(
 	const base = await deps.readPrompt()
 	const meta = opts.task ? await deps.readTaskMeta(opts.task) : null
 	const prompt = assemblePrompt({ base, task: opts.task, meta })
-	const argv = adapter.buildArgv(opts)
+	// `opts` already contains dispatch-flag ?? config values. A task label is the
+	// final, per-task override when this is a worktree dispatch from a drain.
+	const taskOpts: RunOptions = {
+		...opts,
+		...((meta?.model ?? opts.model)
+			? { model: meta?.model ?? opts.model }
+			: {}),
+		...((meta?.effort ?? opts.effort)
+			? { effort: meta?.effort ?? opts.effort }
+			: {}),
+	}
+	const argv = adapter.buildArgv(taskOpts)
 	const outcomes: IterationOutcome[] = []
+	let taskStamped = false
 
 	const runOne = async (label: string): Promise<AgentResult> => {
 		deps.log(`=== iteration ${label} ===`)
+		if (opts.task && !taskStamped) {
+			deps.log(
+				`# task-model ${opts.task} ${taskOpts.model ?? '-'} ${taskOpts.effort ?? '-'}`,
+			)
+			taskStamped = true
+		}
 		const stdout = await deps.spawnAgent(adapter.bin, argv, prompt)
 		const result = adapter.parseResult(stdout)
 		let pushed = false

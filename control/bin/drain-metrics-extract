@@ -20,13 +20,14 @@ from datetime import datetime, timezone
 
 HEAD_RE = re.compile(r"HEAD is now at ([0-9a-f]{7,40})")
 DISPATCH_RE = re.compile(r"^dispatching \d+ task\(s\)[^:]*:\s*(.+)$", re.M)
-TASK_RE = re.compile(r"^# task(?: (.*))?$", re.M)
+TASK_RE = re.compile(r"^# task(?: (?!-model\b)(.*))?$", re.M)
 DONE_RE = re.compile(
     r"^Done:.*?staged (\d+), parked (\d+), blocked (\d+),\s*(ok|with failures)", re.M
 )
 SINGLE_DONE_RE = re.compile(r"^Done:.*?,\s*(ok|with failures)\.$", re.M)
 MODEL_RE = re.compile(r"^# model(?: (.*))?$", re.M)
 EFFORT_RE = re.compile(r"^# effort(?: (.*))?$", re.M)
+TASK_MODEL_RE = re.compile(r"^# task-model (\S+) (\S+) (\S+)$", re.M)
 STAMP_FMT = "%Y-%m-%dT%H-%M-%S"
 
 # Columns emitted (keep in sync with the collector's header).
@@ -34,6 +35,7 @@ COLUMNS = [
     "start", "end", "wall_s", "repo", "model", "effort", "merged_hash",
     "n_tasks", "tasks", "staged", "parked", "blocked", "failures", "status",
     "turns", "output_tokens", "reasoning_tokens", "input_uncached", "cached_input",
+    "task_models",
 ]
 
 
@@ -82,6 +84,11 @@ def parse_transcript(path):
     if not tasks:
         return None  # idle poll — nothing to compare
 
+    task_models = {}
+    for match in TASK_MODEL_RE.finditer(text):
+        # A retry of the same assigned task should not duplicate its attribution.
+        task_models.setdefault(match.group(1), (match.group(2), match.group(3)))
+
     head = HEAD_RE.search(text)
     merged_hash = head.group(1) if head else ""
 
@@ -103,7 +110,7 @@ def parse_transcript(path):
         "staged": staged, "parked": parked, "blocked": blocked,
         "failures": "1" if verdict == "with failures" else "0",
         "status": "failed" if verdict == "with failures" else "ok",
-        "tasks": tasks, "merged_hash": merged_hash,
+        "tasks": tasks, "merged_hash": merged_hash, "task_models": task_models,
         "model": transcript_header(text, MODEL_RE),
         "effort": transcript_header(text, EFFORT_RE),
         "turns": turns, "output_tokens": out_tok, "reasoning_tokens": rea_tok,
@@ -145,6 +152,17 @@ def main():
         model = parsed["model"] if parsed["model"] is not None else config_model
         effort = parsed["effort"] if parsed["effort"] is not None else config_effort
 
+        task_model_entries = []
+        for task in parsed["tasks"]:
+            pair = parsed["task_models"].get(task)
+            if pair is None:
+                continue
+            task_model, task_effort = pair
+            resolved_model = "" if task_model == "-" else task_model
+            resolved_effort = "" if task_effort == "-" else task_effort
+            if (resolved_model, resolved_effort) != (model or "", effort or ""):
+                task_model_entries.append(f"{task}={task_model}/{task_effort}")
+
         row = {
             "start": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
             "end": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -161,6 +179,7 @@ def main():
             "reasoning_tokens": str(parsed["reasoning_tokens"]),
             "input_uncached": str(parsed["input_uncached"]),
             "cached_input": str(parsed["cached_input"]),
+            "task_models": " ".join(task_model_entries),
         }
         # CSV-safe: no field contains a comma (task ids space-joined; text fixed).
         out.write(",".join(row[c] for c in COLUMNS) + "\n")

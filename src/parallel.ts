@@ -31,7 +31,12 @@ export interface ParallelDeps {
 	/** Create the task's isolated worktree; resolve its workspace path. */
 	addWorktree(taskId: string): Promise<string>
 	/** Run the single task to completion in its worktree; resolve true on success. */
-	runTask(input: { task: string; workspace: string }): Promise<boolean>
+	runTask(input: {
+		task: string
+		workspace: string
+		model?: string
+		effort?: string
+	}): Promise<boolean>
 	/** Read the assigned task metadata from its worktree after the agent commits. */
 	readTaskStatus(input: {
 		task: string
@@ -80,13 +85,14 @@ export async function runParallel(
 			.map((t) => t.id)
 			.join(', ')}`,
 	)
-	return Promise.all(chosen.map((t) => dispatchOne(t.id, deps)))
+	return Promise.all(chosen.map((t) => dispatchOne(t, deps)))
 }
 
 async function dispatchOne(
-	id: string,
+	task: TaskMeta,
 	deps: ParallelDeps,
 ): Promise<TaskOutcome> {
+	const { id } = task
 	let workspace: string
 	try {
 		workspace = await deps.addWorktree(id)
@@ -95,7 +101,14 @@ async function dispatchOne(
 		return { id, ok: false }
 	}
 	try {
-		if (!(await deps.runTask({ task: id, workspace }))) {
+		if (
+			!(await deps.runTask({
+				task: id,
+				workspace,
+				...(task.model ? { model: task.model } : {}),
+				...(task.effort ? { effort: task.effort } : {}),
+			}))
+		) {
 			return { id, ok: false }
 		}
 		const status = await deps.readTaskStatus({ task: id, workspace })
