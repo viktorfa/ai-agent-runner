@@ -144,4 +144,6 @@ see `backends/host/README.md`.
 ## Onboarding a host/repo
 `backends/host/provision.sh` (parameterized by `AGENT_USER`) creates the user + Squid
 base; the toolchain install, clone, git config, PAT, and agent CLI **login** are
-manual (login + PAT can't be automated). See `backends/host/README.md`.
+manual (login + PAT can't be automated). See `backends/host/README.md`. What a
+provisioned host can actually run (languages, egress, git-hook handling, and the
+capability boundary task authors must respect) is recorded in `docs/EXECUTOR_HOST.md`.
